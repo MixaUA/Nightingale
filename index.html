@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Соловейковий шифр</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1a1d23;--card:#fff;--ac:#2a6df4;--mu:#6b7280;--bd:#d9dde3;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151a;--fg:#e6e8ec;--card:#1b1f27;--ac:#6ea0ff;--mu:#9aa3b2;--bd:#2c323d}}
+:root[data-theme="dark"]{--bg:#12151a;--fg:#e6e8ec;--card:#1b1f27;--ac:#6ea0ff;--mu:#9aa3b2;--bd:#2c323d}
+html,body{height:auto;margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
+main{max-width:820px;margin:0 auto;padding:12px}
+h1{font-size:18px;margin:4px 0 10px}h2{font-size:14px;margin:0 0 6px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+label{font-size:12px;color:var(--mu);display:block}
+input[type=number]{width:100%;box-sizing:border-box;padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg)}
+button{padding:8px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);font:inherit}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac)}button:disabled{opacity:.4}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}
+textarea{width:100%;box-sizing:border-box;font:12px/1.35 ui-monospace,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px;white-space:pre-wrap}
+#log{height:260px}#txt,#out{height:70px;font:15px/1.4 system-ui,sans-serif}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;max-height:180px;overflow-y:auto}
+.chip{border:1px solid var(--bd);border-radius:6px;padding:3px 6px;font:12px/1.2 ui-monospace,monospace;background:var(--bg);text-align:center;min-width:52px;cursor:pointer}
+.chip b{display:block;font:600 16px/1.2 system-ui,sans-serif}.chip small{color:var(--mu)}
+.chip.on{background:var(--ac);border-color:var(--ac);color:#fff}.chip.on small{color:#fff}
+#now{font:12px/1.4 ui-monospace,monospace;color:var(--mu);margin-top:6px;min-height:17px}
+#live {
+  height: 70px;
+  font: 15px/1.4 system-ui, sans-serif;
+}
+#liveSt {
+  font: 12px/1.4 ui-monospace, monospace;
+  color: var(--mu);
+  margin-top: 6px;
+  min-height: 17px;
+}
+
+.tk{box-sizing:content-box;width:300px;max-width:100%;overflow:hidden;white-space:pre;display:flex;justify-content:flex-end;
+  font:16px/1.5 ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;font-variant-ligatures:none;
+  background:#0d1117;color:#7ee787;border:1px solid var(--bd);border-radius:4px}
+.tkm{color:#8b949e;margin-top:2px}
+.tkm .q{color:#ff7b72;font-weight:700}
+.tki{white-space:pre;flex:none}
+</style></head><body><main>
+<h1>Соловейковий шифр: нарізка + кодер + декодер</h1>
+
+<div class="card">
+<h2>1. Запис і нарізка</h2>
+<input type="file" id="fl" accept="audio/*">
+<div class="grid">
+<div><label>Пауза між колінами від, мс</label><input type="number" id="gap" value="1200"></div>
+<div><label>Глибина порогу, дБ нижче піку</label><input type="number" id="depth" value="35"></div>
+<div><label>Фільтр для пошуку колін, Гц</label><input type="number" id="hp" value="800"></div>
+<div><label>Макс. тиша з кожного боку коліна, мс</label><input type="number" id="side" value="2000"></div>
+<div><label>Ціль: найгучніші 50 мс коліна, дБ</label><input type="number" id="tgt" value="-15"></div>
+<div><label>Макс. пік (0–1)</label><input type="number" id="pmax" value="0.5" step="0.05"></div>
+<div><label>Макс. підсилення, дБ</label><input type="number" id="boost" value="12"></div>
+</div>
+<div class="row"><button class="p" id="bCut" disabled>Нарізати і зібрати бібліотеку</button><button id="bChk" disabled>Перевірка бібліотеки</button><button id="bExp" disabled>↓ Бібліотека (JSON)</button><button id="bMat" disabled>Матриця відмінності</button><button id="bCtx" disabled>Тест у контексті</button><button id="bT">Самотест</button></div>
+</div>
+
+<div class="card">
+<h2>1б. Синтетичні коліна: з партитури замість запису</h2>
+<label>Партитура (solovey-score.json з інструмента «Чистий соловей»)</label>
+<input type="file" id="fs" accept=".json,application/json">
+<div class="row"><button class="p" id="bScore" disabled>Зібрати бібліотеку з партитури</button></div>
+</div>
+
+<div class="card">
+<h2>2. Кодування: текст → аудіо</h2>
+<textarea id="txt" placeholder="Текст для кодування"></textarea>
+<div class="row">
+<button class="p" id="bEnc" disabled>Закодувати</button><button id="bWav" disabled>↓ WAV</button><button id="bPlay" disabled>▶ Відтворити</button><button id="bStop">■ Стоп</button>
+<label style="display:flex;align-items:center;gap:6px">Гучність <input type="range" id="vol" min="5" max="100" value="50" style="width:120px"><span id="volv">50%</span></label>
+</div>
+<div id="now"></div><div class="chips" id="chips"></div>
+</div>
+
+<div class="card">
+<h2>3. Розкодування: аудіо → текст</h2>
+<label>Бібліотека (JSON): потрібна, лише якщо не нарізали запис на цій сторінці</label>
+<input type="file" id="fj" accept=".json,application/json">
+<label style="margin-top:8px">Аудіо для розкодування</label>
+<input type="file" id="fd" accept="audio/*">
+<div class="row"><button class="p" id="bDec" disabled>Розкодувати</button></div>
+<textarea id="out" readonly placeholder="Розкодований текст" style="margin-top:8px"></textarea>
+</div>
+
+<div class="card">
+<h2>4. Живе розпізнавання: мікрофон → текст</h2>
+<div class="row"><button class="p" id="bLive" disabled>Слухати мікрофон</button><button id="bLiveStop" disabled>■ Стоп</button></div>
+<div id="liveSt"></div>
+<div id="tkWrap" style="margin-top:8px">
+  <div class="tk" id="tkT"><div class="tki" id="tkTi"></div></div>
+  <div class="tk tkm" id="tkM"><div class="tki" id="tkMi"></div></div>
+  <div class="row" style="font-size:12px;color:var(--mu);gap:10px;margin-top:4px">
+    <span id="tkInfo"></span>
+    <label>поріг сумніву ×: <input id="tkTh" type="number" value="3" step="0.5" style="width:56px"></label>
+    <button id="tkLoop">▶ Крутити по колу</button><button id="tkStop">■</button>
+  </div>
+</div>
+<textarea id="live" readonly placeholder="Розпізнаний текст з'являється тут по одному символу" style="margin-top:8px"></textarea>
+</div>
+
+<div class="card">
+<textarea id="log" readonly></textarea>
+<div class="row"><button id="bCopy">Копіювати лог</button><button id="bClr">Очистити лог</button></div>
+</div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const log=t=>{const l=$('#log');l.value+=t+'\n';l.scrollTop=l.scrollHeight};
+// Розкладка: символ → номер коліна у вихідному записі (порядок за часом)
+const MAP={' ':5,'о':35,'а':19,'н':3,'і':23,'в':11,'и':29,'т':42,'р':13,'е':4,'с':24,'к':41,'л':33,'д':45,'у':15,'м':28,'п':2,'я':9,'з':34,'ь':1,'б':12,'г':46,'й':27,'ч':40,'х':26,'ж':30,'ц':31,'ш':39,'ю':36,'є':10,'ї':22,'щ':8,'ф':38,"'":14,'ґ':18};
+const SYMS=Object.keys(MAP);
+const M=24,NFFT=1024,HOPS=.02,FMIN=600,FMAX=10000,TRIM_DB=35,FLOOR_DB=50,BAND=.25,HOP=.005,WIN=.01,NOISE_DB=12,LOW_CONF=2,PAD=.1;
+let ctx=null,bank=null,lib=null,allClips=null,sig=null,src=null,rec=[],clock=null,raf=0,hl=-1,gainNode=null;
+const P=()=>({gap:+$('#gap').value,depth:+$('#depth').value,hp:+$('#hp').value,side:+$('#side').value,tgt:+$('#tgt').value,pmax:+$('#pmax').value,boost:+$('#boost').value});
+const ac=()=>ctx=ctx||(()=>{const A=window.AudioContext||window.webkitAudioContext;try{return new A({latencyHint:'playback',sampleRate:48000})}catch(e){return new A({latencyHint:'playback'})}})();
+const mono=b=>{const x=new Float32Array(b.length);for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c);for(let i=0;i<b.length;i++)x[i]+=d[i]/b.numberOfChannels}return x};
+const med=a=>a.length?a.slice().sort((u,v)=>u-v)[a.length>>1]:0;
+const pad=i=>String(i).padStart(2,'0');
+const sy=c=>c===' '?'␣':c;
+const rt=r=>isFinite(r)?r.toFixed(2):'∞';
+
+// ===== Спектр і порівняння =====
+function fft(re,im){
+  const n=re.length;
+  for(let i=1,j=0;i<n;i++){let b=n>>1;for(;j&b;b>>=1)j^=b;j^=b;if(i<j){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t}}
+  for(let len=2;len<=n;len<<=1){const a=-2*Math.PI/len,wr=Math.cos(a),wi=Math.sin(a),h=len>>1;
+    for(let i=0;i<n;i+=len){let cr=1,ci=0;for(let j=0;j<h;j++){const u=i+j,v=u+h,vr=re[v]*cr-im[v]*ci,vi=re[v]*ci+im[v]*cr;re[v]=re[u]-vr;im[v]=im[u]-vi;re[u]+=vr;im[u]+=vi;const t=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=t}}}
+}
+const HANN=new Float32Array(NFFT);for(let i=0;i<NFFT;i++)HANN[i]=.5-.5*Math.cos(2*Math.PI*i/(NFFT-1));
+function buildBank(sr){
+  const h2m=f=>2595*Math.log10(1+f/700),m2h=m=>700*(Math.pow(10,m/2595)-1),fmax=Math.min(FMAX,sr/2*.95),m0=h2m(FMIN),m1=h2m(fmax),pts=[];
+  for(let i=0;i<M+2;i++)pts.push(m2h(m0+(m1-m0)*i/(M+1)));
+  const bins=NFFT/2+1,bk=[];
+  for(let m=0;m<M;m++){const l=pts[m],c=pts[m+1],r=pts[m+2],k0=Math.max(0,Math.floor(l*NFFT/sr)),k1=Math.min(bins-1,Math.ceil(r*NFFT/sr)),w=new Float32Array(k1-k0+1);
+    for(let k=k0;k<=k1;k++){const f=k*sr/NFFT;w[k-k0]=Math.max(0,f<=c?(f-l)/(c-l):(r-f)/(r-c))}
+    bk.push({k0,w})}
+  return bk;
+}
+// Відбиток: обрізана лог-мел-спектрограма без середнього по смугах
+function features(x,sr){
+  const hop=Math.round(HOPS*sr),nf=Math.floor((x.length-NFFT)/hop)+1;if(nf<3)return null;
+  const re=new Float32Array(NFFT),im=new Float32Array(NFFT),pw=new Float32Array(NFFT/2+1),mel=new Float32Array(nf*M),tot=new Float32Array(nf);
+  for(let f=0;f<nf;f++){
+    const o=f*hop;for(let i=0;i<NFFT;i++){re[i]=x[o+i]*HANN[i];im[i]=0}
+    fft(re,im);for(let k=0;k<=NFFT/2;k++)pw[k]=re[k]*re[k]+im[k]*im[k];
+    let sum=0;
+    for(let m=0;m<M;m++){const b=bank[m];let s=0;for(let k=0;k<b.w.length;k++)s+=b.w[k]*pw[b.k0+k];mel[f*M+m]=10*Math.log10(s+1e-12);sum+=s}
+    tot[f]=10*Math.log10(sum+1e-12);
+  }
+  let mx=-Infinity;for(let f=0;f<nf;f++)if(tot[f]>mx)mx=tot[f];
+  const noise=Array.from(tot).sort((a,b)=>a-b)[Math.floor(nf*.2)],thr=Math.max(mx-TRIM_DB,noise+10);
+  let a=0;while(a<nf&&tot[a]<thr)a++;let z=nf-1;while(z>a&&tot[z]<thr)z--;
+  const n=z-a+1;if(n<3)return null;
+  let mm=-Infinity;for(let i=a*M;i<(z+1)*M;i++)if(mel[i]>mm)mm=mel[i];
+  const floor=mm-FLOOR_DB,out=new Float32Array(n*M),mean=new Float32Array(M);
+  for(let f=0;f<n;f++)for(let m=0;m<M;m++){const v=Math.max(mel[(a+f)*M+m],floor);out[f*M+m]=v;mean[m]+=v/n}
+  for(let f=0;f<n;f++)for(let m=0;m<M;m++)out[f*M+m]-=mean[m];
+  return{f:out,n};
+}
+function dtw(a,b){
+  const n=a.n,m=b.n;if(n>2.5*m||m>2.5*n)return 1e6;
+  const band=Math.max(Math.abs(n-m),Math.ceil(BAND*Math.max(n,m)));
+  let prev=new Float64Array(m+1).fill(Infinity),cur=new Float64Array(m+1);prev[0]=0;
+  for(let i=1;i<=n;i++){cur.fill(Infinity);const lo=Math.max(1,i-band),hi=Math.min(m,i+band),ao=(i-1)*M;
+    for(let j=lo;j<=hi;j++){const bo=(j-1)*M;let d=0;for(let q=0;q<M;q++){const t=a.f[ao+q]-b.f[bo+q];d+=t*t}d/=M;cur[j]=d+Math.min(prev[j],prev[j-1],cur[j-1])}
+    const t=prev;prev=cur;cur=t}
+  return prev[m]/(n+m);
+}
+
+// ===== Єдина сегментація: її використовують і нарізка, і розкодування =====
+function envelope(x,sr){
+  const h=Math.round(HOP*sr),w=Math.round(WIN*sr),n=Math.max(0,Math.floor((x.length-w)/h)+1),e=new Float32Array(n);
+  for(let i=0;i<n;i++){let s=0;const o=i*h;for(let j=0;j<w;j++){const v=x[o+j];s+=v*v}e[i]=10*Math.log10(s/w+1e-12)}
+  return e;
+}
+async function hpf(x,sr,f){
+  if(!(f>0))return x;
+  const oc=new OfflineAudioContext(1,x.length,sr),s=oc.createBufferSource(),fl=oc.createBiquadFilter(),b=oc.createBuffer(1,x.length,sr);
+  b.copyToChannel(x,0);s.buffer=b;fl.type='highpass';fl.frequency.value=f;s.connect(fl);fl.connect(oc.destination);s.start();
+  return (await oc.startRendering()).getChannelData(0);
+}
+async function findKnees(x,sr,p){
+  const e=envelope(await hpf(x,sr,p.hp),sr),h=Math.round(HOP*sr),w=Math.round(WIN*sr);
+  let ref=-Infinity;for(const v of e)if(v>ref)ref=v;
+  const noise=Array.from(e).sort((a,b)=>a-b)[Math.floor(e.length*.2)]||-120,thr=Math.max(ref-p.depth,noise+NOISE_DB),kn=[];
+  let k=null,gs=-1;
+  for(let i=0;i<e.length;i++){
+    if(e[i]>=thr){
+      if(!k){k={s:i,e:i,dip:0};kn.push(k)}
+      else{
+        if(gs>=0){const ms=(i-gs+1)*HOP*1000;if(ms>=p.gap){k={s:i,e:i,dip:0};kn.push(k);gs=-1;continue}if(ms>k.dip)k.dip=ms}
+        k.e=i;
+      }
+      gs=-1;
+    }else if(k&&gs<0)gs=i;
+  }
+  return{kn:kn.map(q=>({ss:q.s*h,se:Math.min(x.length,q.e*h+w),dip:q.dip})),thr,ref};
+}
+function segFeat(x,sr,k){
+  const a=Math.max(0,k.ss-Math.round(PAD*sr)),z=Math.min(x.length,k.se+Math.round(PAD*sr));
+  return{ft:features(x.subarray(a,z),sr),t0:a/sr,t1:z/sr,a,z};
+}
+function lvl(y,sr){
+  let pk=0;for(let i=0;i<y.length;i++){const a=Math.abs(y[i]);if(a>pk)pk=a}
+  const w=Math.round(.05*sr);let r=-Infinity;
+  for(let o=0;o+w<=y.length;o+=w){let s=0;for(let j=0;j<w;j++)s+=y[o+j]*y[o+j];const d=10*Math.log10(s/w+1e-12);if(d>r)r=d}
+  return{pk,r50:r};
+}
+
+// ===== Нарізка: кліп = друга половина попередньої паузи + коліно + перша половина наступної =====
+async function cut(x,sr,p){
+  const{kn,thr,ref}=await findKnees(x,sr,p),n=x.length,side=Math.round(p.side/1000*sr),out=[];
+  kn.forEach((q,j)=>{
+    const a=j?Math.round((kn[j-1].se+q.ss)/2):0,b=j<kn.length-1?Math.round((q.se+kn[j+1].ss)/2):n;
+    const cs=Math.max(0,a,q.ss-side),ce=Math.min(b,q.se+side),y=x.slice(cs,ce),L=lvl(y,sr);
+    let g=Math.min(Math.pow(10,(p.tgt-L.r50)/20),p.pmax/(L.pk+1e-9),Math.pow(10,p.boost/20));if(!(g>0&&isFinite(g)))g=1;
+    for(let i=0;i<y.length;i++)y[i]*=g;
+    const kk=y.subarray(Math.max(0,q.ss-cs),Math.min(y.length,q.se-cs));let sq=0;for(let i=0;i<kk.length;i++)sq+=kk[i]*kk[i];
+    const lk=10*Math.log10(sq/(kk.length||1)+1e-12);
+    out.push({y,cs:cs/sr,ce:ce/sr,kdur:(q.se-q.ss)/sr,pOrig:j<kn.length-1?(kn[j+1].ss-q.se)/sr:null,dip:q.dip,g,pk:L.pk*g,r50:L.r50+20*Math.log10(g),lk});
+  });
+  return{clips:out,thr,ref};
+}
+
+// ===== Розкодування (та сама сегментація і той самий відбиток, що й для шаблонів) =====
+async function decodeSig(x,p,raw){
+  const sr=ctx.sampleRate,{kn}=await findKnees(x,sr,p),items=[];items.skipped=[];
+  // Усе, що значно коротше за найкоротше коліно бібліотеки, вважаємо випадковим звуком (клацання, шум), як і в живому режимі.
+  // raw=true вимикає цей відсів (для перевірки бібліотеки, де треба бачити всі ділянки)
+  let minK=Infinity;for(const c of SYMS)minK=Math.min(minK,lib[c].ft.n*HOPS);
+  const minDur=Math.max(.3,.5*minK);
+  for(const k of kn){
+    if(!raw&&(k.se-k.ss)/sr<minDur){items.skipped.push({t:k.ss/sr,d:(k.se-k.ss)/sr});continue}
+    const s=segFeat(x,sr,k),it={t0:s.t0,t1:s.t1,sym:'?',ratio:0,second:''};
+    if(s.ft){
+      const ds=SYMS.map(c=>[dtw(s.ft,lib[c].ft),c]).sort((a,b)=>a[0]-b[0]);
+      // Фазовий пошук: кадрова сітка відбитка може бути зсунута щодо шаблону до 10 мс,
+      // тому 4 найближчі кандидати перевіряються ще на 7 зсувів по 2.5 мс
+      const fs=[];for(let j=1;j<8;j++){const f=features(x.subarray(s.a+j*Math.round(sr*.0025),s.z),sr);if(f)fs.push(f)}
+      for(const q of ds.slice(0,4))for(const f of fs){const d=dtw(f,lib[q[1]].ft);if(d<q[0])q[0]=d}
+      ds.sort((a,b)=>a[0]-b[0]);
+      // ds[0][0]>=1e5: жоден шаблон не підходить за довжиною: це не коліно абетки, залишається «?»
+      if(ds[0][0]<1e5){it.sym=ds[0][1];it.second=ds[1][1];it.ratio=ds[1][0]/ds[0][0]}
+    }
+    items.push(it);
+  }
+  return items;
+}
+function assemble(syms){
+  let n=0;for(const c of syms)n+=lib[c].y.length;
+  const y=new Float32Array(n),r=[],sr=ctx.sampleRate;let o=0;
+  for(const c of syms){r.push({sym:c,t0:o/sr,t1:(o+lib[c].y.length)/sr});y.set(lib[c].y,o);o+=lib[c].y.length}
+  return{y,r};
+}
+function wavBytes(y,sr){
+  const b=new ArrayBuffer(44+y.length*2),d=new DataView(b),S=(o,t)=>{for(let i=0;i<t.length;i++)d.setUint8(o+i,t.charCodeAt(i))};
+  S(0,'RIFF');d.setUint32(4,36+y.length*2,true);S(8,'WAVEfmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);
+  d.setUint32(24,sr,true);d.setUint32(28,sr*2,true);d.setUint16(32,2,true);d.setUint16(34,16,true);S(36,'data');d.setUint32(40,y.length*2,true);
+  for(let i=0;i<y.length;i++){const v=Math.max(-1,Math.min(1,y[i]));d.setInt16(44+i*2,Math.max(-32768,Math.min(32767,Math.round(v*32768))),true)}
+  return new Uint8Array(b);
+}
+
+// ===== Крок 1: нарізка і бібліотека =====
+$('#fl').onchange=()=>{$('#bCut').disabled=!$('#fl').files.length};
+$('#bCut').onclick=async()=>{
+  const f=$('#fl').files[0];if(!f)return;const p=P();ac();bank=buildBank(ctx.sampleRate);const sr=ctx.sampleRate;lib=null;
+  ['bEnc','bChk','bDec','bExp','bMat','bCtx'].forEach(i=>$('#'+i).disabled=true);
+  log(`\n-- Нарізка: ${f.name} (${sr} Гц) --`);
+  let x;try{x=mono(await ctx.decodeAudioData(await f.arrayBuffer()))}catch(e){log('ПОМИЛКА: не вдалось декодувати файл');return}
+  const r=await cut(x,sr,p),cl=r.clips;allClips=cl;
+  log(`Колін: ${cl.length} | пік ${r.ref.toFixed(1)} дБ, поріг ${r.thr.toFixed(1)} дБ`);
+  log('№ | у вихідному, с | коліно | пауза після | кліп | макс.провал | підсил. | пік');
+  cl.forEach((c,i)=>log(`${pad(i+1)} | ${c.cs.toFixed(2)}–${c.ce.toFixed(2)} | ${c.kdur.toFixed(2)}с | ${c.pOrig==null?'—':c.pOrig.toFixed(2)+'с'} | ${(c.y.length/sr).toFixed(2)}с | ${c.dip.toFixed(0)} мс | ${(20*Math.log10(c.g)).toFixed(1)} дБ | ${c.pk.toFixed(2)}${c.kdur>6?' ДОВГЕ':(c.kdur<1?' КОРОТКЕ':'')}`));
+  const ps=cl.filter(c=>c.pOrig!=null).map(c=>c.pOrig),ks=cl.map(c=>c.kdur);
+  log(`Паузи: мін ${Math.min(...ps).toFixed(2)} | медіана ${med(ps).toFixed(2)} | макс ${Math.max(...ps).toFixed(2)} с; коліна: мін ${Math.min(...ks).toFixed(2)} | медіана ${med(ks).toFixed(2)} | макс ${Math.max(...ks).toFixed(2)} с`);
+  const need=Math.max(...SYMS.map(s=>MAP[s]));
+  if(cl.length<need){log(`ПОМИЛКА: потрібно щонайменше ${need} колін, знайдено ${cl.length}. Бібліотеку не збудовано.`);return}
+  if(cl.length!==47)log(`⚠ Колін ${cl.length}, а розкладка писалась під 47: перевір, чи номери колін збігаються.`);
+  const L={};
+  for(const s of SYMS){
+    const c=cl[MAP[s]-1],kn=(await findKnees(c.y,sr,p)).kn;
+    if(!kn.length){log(`ПОМИЛКА: у кліпі №${MAP[s]} не знайдено коліна`);return}
+    let m=kn[0];for(const q of kn)if(q.se-q.ss>m.se-m.ss)m=q;
+    const ft=segFeat(c.y,sr,m).ft;if(!ft){log(`ПОМИЛКА: кліп №${MAP[s]} закороткий`);return}
+    L[s]={idx:MAP[s],y:c.y,ft};
+  }
+  lib=L;log(`Бібліотека готова: ${SYMS.length} символів`);
+  $('#bEnc').disabled=false;$('#bChk').disabled=false;$('#bExp').disabled=false;$('#bMat').disabled=false;$('#bCtx').disabled=false;$('#bLive').disabled=false;$('#bDec').disabled=!$('#fd').files.length;
+};
+// Перевірка: кожен кліп через сегментацію декодера. Очікую: 1 ділянка, свій символ, запас ∞
+$('#bChk').onclick=async()=>{
+  const p=P();let bad=0;
+  log('\n-- Перевірка бібліотеки --\nсимвол | коліно # | кліп | ділянок | головна ділянка | збіг | запас × | інші ділянки');
+  for(const c of SYMS){
+    const dur=lib[c].y.length/ctx.sampleRate,its=await decodeSig(lib[c].y,p,true);
+    if(!its.length){log(`${sy(c)} | #${lib[c].idx} | ${dur.toFixed(2)}с | 0 ⚠ НІЧОГО`);bad++;continue}
+    let m=its[0];for(const q of its)if(q.t1-q.t0>m.t1-m.t0)m=q;
+    const ok=its.length===1&&m.sym===c&&m.ratio>=LOW_CONF;if(!ok)bad++;
+    const ex=its.filter(q=>q!==m).map(q=>`${q.t0.toFixed(2)}–${q.t1.toFixed(2)}с${q.t0>dur-.5?' (В КІНЦІ)':(q.t1<.5?' (НА ПОЧАТКУ)':'')}`).join('; ');
+    log(`${sy(c)} | #${lib[c].idx} | ${dur.toFixed(2)}с | ${its.length} | ${m.t0.toFixed(2)}–${m.t1.toFixed(2)}с | ${m.sym===c?'так':'НІ→'+m.sym} | ${rt(m.ratio)} | ${ex||'—'}${ok?'':' ⚠'}`);
+  }
+  log(`Проблемних кліпів: ${bad} з ${SYMS.length}`);
+};
+
+// ===== Крок 2: кодування і відтворення =====
+const vol=()=>+$('#vol').value/100;
+$('#vol').oninput=()=>{$('#volv').textContent=`${Math.round(vol()*100)}%`;if(gainNode)gainNode.gain.value=vol()};
+function stop(){if(src){const s=src;src=null;try{s.stop()}catch(e){}}}
+async function play(y,onend){
+  stop();await ctx.resume();
+  const b=ctx.createBuffer(1,y.length,ctx.sampleRate);b.copyToChannel(y,0);
+  const s=ctx.createBufferSource();gainNode=ctx.createGain();gainNode.gain.value=vol();s.buffer=b;s.connect(gainNode);gainNode.connect(ctx.destination);
+  s.onended=()=>{if(src===s){src=null;onend()}};
+  const t0=ctx.currentTime;s.start(t0);src=s;return()=>ctx.currentTime-t0;
+}
+function setHL(i){
+  if(i===hl)return;const o=document.getElementById('chip'+hl);if(o)o.classList.remove('on');hl=i;
+  const e=document.getElementById('chip'+i);if(e){e.classList.add('on');e.scrollIntoView({block:'nearest',inline:'nearest'})}
+}
+function tick(){
+  const t=clock?clock():-1;let k=-1;
+  for(let i=0;i<rec.length;i++)if(t>=rec[i].t0&&t<rec[i].t1){k=i;break}
+  setHL(k);if(k>=0)$('#now').textContent=`▶ №${k+1} · «${sy(rec[k].sym)}» · коліно #${lib[rec[k].sym].idx}`;
+  raf=requestAnimationFrame(tick);
+}
+function endHL(){cancelAnimationFrame(raf);setHL(-1);$('#now').textContent=''}
+function renderChips(){
+  const box=$('#chips');box.textContent='';
+  rec.forEach((it,i)=>{
+    const d=document.createElement('div'),b=document.createElement('b'),s=document.createElement('small');
+    d.className='chip';d.id='chip'+i;b.textContent=sy(it.sym);s.textContent=`#${i+1} · ${pad(lib[it.sym].idx)}`;
+    d.appendChild(b);d.appendChild(s);
+    d.onclick=async()=>{stop();cancelAnimationFrame(raf);setHL(-1);$('#now').textContent=`▶ окремо: «${sy(it.sym)}» · коліно #${lib[it.sym].idx}`;await play(lib[it.sym].y,()=>{$('#now').textContent=''})};
+    box.appendChild(d);
+  });
+  hl=-1;
+}
+$('#bEnc').onclick=()=>{
+  const t=$('#txt').value.toLowerCase().replace(/[ʼ’‘`´]/g,"'").replace(/\s+/g,' '),syms=[],skip=new Set();
+  for(const ch of t){if(lib[ch])syms.push(ch);else skip.add(ch)}
+  if(skip.size)log(`Пропущено символи поза абеткою: ${Array.from(skip).map(c=>JSON.stringify(c)).join(' ')}`);
+  if(!syms.length){log('Нема що кодувати');return}
+  const a=assemble(syms);sig=a.y;rec=a.r;
+  log(`\n-- Кодування: «${syms.join('')}» --\nЗакодовано ${syms.length} символів, ${(sig.length/ctx.sampleRate).toFixed(1)} с`);
+  rec.forEach((it,i)=>log(`${pad(i+1)} | ${sy(it.sym)} | коліно #${lib[it.sym].idx} | ${it.t0.toFixed(2)}–${it.t1.toFixed(2)} с`));
+  renderChips();$('#bWav').disabled=false;$('#bPlay').disabled=false;
+};
+$('#bWav').onclick=()=>{
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([wavBytes(sig,ctx.sampleRate)],{type:'audio/wav'}));
+  a.download='solovey.wav';document.body.appendChild(a);a.click();a.remove();
+};
+$('#bPlay').onclick=async()=>{clock=await play(sig,endHL);cancelAnimationFrame(raf);raf=requestAnimationFrame(tick)};
+$('#bStop').onclick=()=>{stop();endHL()};
+
+// ===== Крок 3: розкодування файлу =====
+$('#fd').onchange=()=>{$('#bDec').disabled=!(lib&&$('#fd').files.length)};
+$('#bDec').onclick=async()=>{
+  const f=$('#fd').files[0];if(!f)return;
+  log(`\n-- Розкодування: ${f.name} --`);
+  let x;try{x=mono(await ctx.decodeAudioData(await f.arrayBuffer()))}catch(e){log('ПОМИЛКА: не вдалось декодувати файл');return}
+  const its=await decodeSig(x,P());
+  log(`Знайдено колін: ${its.length}\n№ | час, с | символ | запас × | другий варіант`);
+  if(its.skipped.length)log(`Відкинуто коротких звуків (клацання, шум): ${its.skipped.length} — ${its.skipped.map(q=>q.t.toFixed(2)+'с/'+(q.d*1000).toFixed(0)+'мс').join(', ')}`);
+  its.forEach((it,i)=>log(`${pad(i+1)} | ${it.t0.toFixed(2)}–${it.t1.toFixed(2)} | ${sy(it.sym)} | ${rt(it.ratio)}${it.ratio<LOW_CONF?' ⚠ СУМНІВНО':''} | ${sy(it.second)}`));
+  const text=its.map(i=>i.sym).join(''),low=its.filter(i=>i.ratio<LOW_CONF).length;
+  $('#out').value=text;log(`Текст: «${text}»${low?` (сумнівних: ${low})`:''}`);
+  tkClear();for(const it of its){TK.text+=it.sym;TK.mon+=(it.sym!=='?'&&it.ratio>=(+$('#tkTh').value||3))?'+':'?'}tkLoopStart();
+};
+
+// ===== Матриця відмінності: відстані DTW між відбитками всіх колін (ті самі, що в декодері) =====
+$('#bMat').onclick=async()=>{
+  if(!allClips)return;
+  const p=P(),sr=ctx.sampleRate,N=allClips.length,F=[],inv={};
+  for(const c of SYMS)inv[MAP[c]]=c;
+  log(`\n-- Матриця відмінності: ${N} колін (${N*(N-1)/2} пар) --`);
+  for(let i=0;i<N;i++){
+    const c=allClips[i],kn=(await findKnees(c.y,sr,p)).kn;
+    if(!kn.length){F.push(null);continue}
+    let m=kn[0];for(const q of kn)if(q.se-q.ss>m.se-m.ss)m=q;
+    F.push(segFeat(c.y,sr,m).ft);
+  }
+  const D=Array.from({length:N},()=>new Float32Array(N));
+  for(let i=0;i<N;i++){
+    for(let j=0;j<i;j++){const d=(F[i]&&F[j])?dtw(F[i],F[j]):1e6;D[i][j]=D[j][i]=d}
+    if(i%6===5)await new Promise(r=>setTimeout(r));
+  }
+  const f=d=>d>=999?'X':d.toFixed(1);
+  const nn=i=>{const a=[];for(let j=0;j<N;j++)if(j!==i)a.push([D[i][j],j]);a.sort((u,v)=>u[0]-v[0]);return a};
+  log('№ | символ | коліно | кліп | найближче # (відст.) | друге # (відст.) | макс50−середнє, дБ | крест, дБ');
+  for(let i=0;i<N;i++){
+    const a=nn(i),c=allClips[i];
+    log(`${pad(i+1)} | ${inv[i+1]?sy(inv[i+1]):'—'} | ${c.kdur.toFixed(2)}с | ${(c.y.length/sr).toFixed(2)}с | #${a[0][1]+1} (${f(a[0][0])}) | #${a[1][1]+1} (${f(a[1][0])}) | ${(c.r50-c.lk).toFixed(1)} | ${(20*Math.log10(c.pk)-c.r50).toFixed(1)}`);
+  }
+  log('\nМатриця: рядок i = відстані до колін 1..i-1 (X = надто різна довжина)');
+  for(let i=1;i<N;i++){const r=[];for(let j=0;j<i;j++)r.push(f(D[i][j]));log(`${pad(i+1)}: ${r.join(' ')}`)}
+  const pr=[];for(let i=0;i<N;i++)for(let j=0;j<i;j++)pr.push([D[i][j],i,j]);pr.sort((u,v)=>u[0]-v[0]);
+  log('\nНайближчі 10 пар: '+pr.slice(0,10).map(q=>`#${q[2]+1}–#${q[1]+1} (${f(q[0])})`).join(', '));
+  const as=SYMS.map(c=>MAP[c]-1);let mn=1e9,w='';
+  for(const i of as)for(const j of as)if(i<j&&D[i][j]<mn){mn=D[i][j];w=`#${i+1} (${sy(inv[i+1])}) – #${j+1} (${sy(inv[j+1])})`}
+  log(`Серед нинішніх ${as.length} призначених: мінімальна відстань ${f(mn)} (${w})`);
+};
+
+// ===== Тест у контексті: усі символи в одному повідомленні, у двох порядках =====
+$('#bCtx').onclick=async()=>{
+  const p=P(),all=[];
+  log('\n-- Тест у контексті (усі символи в одному повідомленні) --');
+  for(const [name,order] of [['за частотою',SYMS.slice()],['у зворотному порядку',SYMS.slice().reverse()]]){
+    const a=assemble(order),its=await decodeSig(a.y,p),bad=[];
+    log(`${name}: знайдено ${its.length} колін з ${order.length}`);
+    if(its.length!==order.length)log('⚠ кількість колін не збігається: порівняння за номерами недостовірне');
+    order.forEach((c,i)=>{
+      const it=its[i];if(!it)return;
+      all.push({c,r:it.ratio,ok:it.sym===c,sec:it.second});
+      if(it.sym!==c)bad.push(`№${i+1} ${sy(c)}→${sy(it.sym)}`);
+    });
+    log(bad.length?`Помилки: ${bad.join(', ')}`:'Помилок немає');
+  }
+  log('\nСимвол | запас × (порядок 1 / порядок 2) | другий варіант');
+  for(const c of SYMS){const q=all.filter(z=>z.c===c);log(`${sy(c)} | ${q.map(z=>rt(z.r)).join(' / ')} | ${q.map(z=>sy(z.sec)).join(' / ')}`)}
+  const rs=all.map(q=>q.r).filter(isFinite);
+  log(`\nПомилок: ${all.filter(q=>!q.ok).length} з ${all.length}; мін. запас ${rt(Math.min(...all.map(q=>q.r)))}, медіана ${rt(med(rs))}, нижче 5: ${all.filter(q=>q.r<5).length}`);
+};
+
+// ===== Переносна бібліотека: лише відбитки (без аудіо), для окремого компактного декодера =====
+const b64=u=>{let s='';for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};
+const ub64=s=>{const t=atob(s),u=new Uint8Array(t.length);for(let i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u};
+$('#bExp').onclick=()=>{
+  const p=P(),T={};
+  for(const c of SYMS){const f=lib[c].ft,q=new Int16Array(f.f.length);for(let i=0;i<q.length;i++)q[i]=Math.max(-32768,Math.min(32767,Math.round(f.f[i]*100)));T[c]={n:f.n,d:b64(new Uint8Array(q.buffer))}}
+  const js=JSON.stringify({v:1,sr:ctx.sampleRate,gap:p.gap,depth:p.depth,hp:p.hp,t:T}),a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));a.download='solovey-lib.json';document.body.appendChild(a);a.click();a.remove();
+  log(`\nБібліотеку збережено: ${SYMS.length} відбитків, ${(js.length/1024).toFixed(0)} КБ, ${ctx.sampleRate} Гц`);
+};
+$('#fj').onchange=async()=>{
+  const f=$('#fj').files[0];if(!f)return;
+  try{
+    const o=JSON.parse(await f.text());ac();
+    if(o.sr!==ctx.sampleRate){log(`ПОМИЛКА: бібліотека для ${o.sr} Гц, а тут ${ctx.sampleRate} Гц`);return}
+    bank=buildBank(ctx.sampleRate);const L={};
+    for(const c of SYMS){const t=o.t[c],u=ub64(t.d),q=new Int16Array(u.buffer,0,u.length>>1),v=new Float32Array(q.length);for(let i=0;i<q.length;i++)v[i]=q[i]/100;L[c]={idx:MAP[c],ft:{f:v,n:t.n}}}
+    $('#gap').value=o.gap;$('#depth').value=o.depth;$('#hp').value=o.hp;
+    lib=L;['bEnc','bChk','bPlay','bCtx'].forEach(i=>$('#'+i).disabled=true);$('#bLive').disabled=false;$('#bDec').disabled=!$('#fd').files.length;
+    log(`\nБібліотеку завантажено з файлу: ${SYMS.length} відбитків, ${o.sr} Гц (кодування недоступне: у файлі немає аудіо)`);
+  }catch(e){log('ПОМИЛКА: не вдалось прочитати бібліотеку')}
+};
+
+// ===== Синтетичні коліна з партитури =====
+// Партитура зберігає для кожного коліна набір ліній: висота і гучність у часі.
+// Тут із них збирається звук (чисті тони), потім стиснення гучних нот, підсилення
+// верхів і відлуння (ті самі налаштування, що були в інструменті під час збереження),
+// далі гучність вирівнюється так само, як при нарізці справжнього запису.
+// Після цього бібліотека виглядає так само, як зібрана з запису, тож кодування,
+// розкодування й перевірки працюють без змін.
+
+// Читання ліній одного коліна з base64.
+// Формат однієї лінії: кількість точок (2 байти), перший кадр відносно початку кліпу (4 байти),
+// далі на кожну точку 5 байтів: крок у кадрах (1), частота ×4 в Гц (2), гучність у сотих дБ
+// відносно найгучнішої складової запису (2).
+function readLines(d,n,maxAmp,fade){
+  const u=ub64(d),dv=new DataView(u.buffer),tr=[];
+  let off=0;
+  for(let k=0;k<n;k++){
+    const pn=dv.getUint16(off,true);off+=2;
+    let fr=dv.getInt32(off,true);off+=4;
+    const F=[],Q=[],A=[];
+    for(let i=0;i<pn;i++){
+      fr+=dv.getUint8(off);off+=1;
+      F.push(fr);
+      Q.push(dv.getUint16(off,true)/4);off+=2;
+      A.push(maxAmp*Math.pow(10,dv.getInt16(off,true)/100/20));off+=2;
+    }
+    // Нульові точки на початку й в кінці лінії: плавний вхід і вихід, без клацань
+    F.unshift(F[0]-fade);Q.unshift(Q[0]);A.unshift(0);
+    F.push(F[F.length-1]+fade);Q.push(Q[Q.length-1]);A.push(0);
+    tr.push({fr:F,fq:Q,am:A});
+  }
+  return tr;
+}
+
+// Збирання звуку коліна з ліній: кожна лінія = одна синусоїда, частота й гучність
+// лінійно змінюються між точками, фаза накопичується безперервно.
+function synthKnee(tr,len,fx,sc,sr){
+  const out=new Float32Array(len),thr=fx.compThresh*sc.maxAmp;
+  for(const t of tr){
+    // Приглушення гучних ліній і підсилення верхніх (перехід 3000–5000 Гц, як в інструменті)
+    const am=t.am.map((v,i)=>{
+      const q=v<=thr?v:thr*Math.pow(v/thr,fx.compPower);
+      const k=Math.max(0,Math.min(1,(t.fq[i]-(fx.brightHz-1000))/2000));
+      return q*(1+(fx.brightGain-1)*k*k*(3-2*k));
+    });
+    let ph=0;
+    for(let p=0;p<t.fr.length-1;p++){
+      const s0=t.fr[p]*sc.hop+sc.fft/2,s1=t.fr[p+1]*sc.hop+sc.fft/2,L=s1-s0;
+      for(let i=s0;i<s1;i++){
+        if(i<0||i>=len)continue;
+        const u=(i-s0)/L,f=t.fq[p]+(t.fq[p+1]-t.fq[p])*u,a=am[p]+(am[p+1]-am[p])*u;
+        ph+=2*Math.PI*f/sr;
+        out[i]+=a*Math.sin(ph);
+      }
+    }
+  }
+  return out;
+}
+
+// «Відбиток» кімнати: затихаючий шум, що з часом темнішає (власний генератор, щоб був однаковий щоразу)
+function makeIR(fx,sr){
+  const len=Math.floor(fx.roomSec*sr),pre=Math.floor(.01*sr),ir=new Float32Array(len);
+  let seed=12345,lp=0;
+  for(let i=pre;i<len;i++){
+    seed=(seed*1664525+1013904223)>>>0;
+    const n=seed/4294967296*2-1,t=(i-pre)/(len-pre);
+    lp+=Math.max(.12,1-.88*t)*(n-lp);
+    ir[i]=lp*Math.exp(-6.9*t);
+  }
+  return ir;
+}
+
+// Накладання відлуння (рахує браузер): чистий звук + частка відлуння
+async function roomify(dry,fx,sr){
+  const oc=new OfflineAudioContext(1,dry.length,sr),b=oc.createBuffer(1,dry.length,sr),s=oc.createBufferSource();
+  b.copyToChannel(dry,0);s.buffer=b;
+  const ir=makeIR(fx,sr),ib=oc.createBuffer(1,ir.length,sr),cv=oc.createConvolver(),w=oc.createGain();
+  ib.copyToChannel(ir,0);cv.normalize=true;cv.buffer=ib;w.gain.value=fx.roomMix;
+  s.connect(oc.destination);s.connect(cv);cv.connect(w);w.connect(oc.destination);s.start();
+  return new Float32Array((await oc.startRendering()).getChannelData(0));
+}
+
+$('#fs').onchange=()=>{$('#bScore').disabled=!$('#fs').files.length};
+$('#bScore').onclick=async()=>{
+  const f=$('#fs').files[0];if(!f)return;
+  ac();const sr=ctx.sampleRate,p=P();bank=buildBank(sr);lib=null;allClips=null;
+  ['bEnc','bChk','bDec','bExp','bMat','bCtx'].forEach(i=>$('#'+i).disabled=true);
+  log(`\n-- Синтетична бібліотека з партитури: ${f.name} --`);
+  let o;try{o=JSON.parse(await f.text())}catch(e){log('ПОМИЛКА: не вдалось прочитати партитуру');return}
+  if(o.sr!==sr){log(`ПОМИЛКА: партитура для ${o.sr} Гц, а тут ${sr} Гц`);return}
+  const fx=o.fx,sc={fft:o.fft,hop:o.hop,maxAmp:o.maxAmp},L={};
+  log(`Налаштування звуку з партитури: гучність ${fx.safePeak}, дзвінкість ${fx.brightGain}× від ${fx.brightHz} Гц, відлуння ${fx.roomMix} / ${fx.roomSec} с, приглушення ${fx.compThresh} / ${fx.compPower}`);
+  for(let n=0;n<SYMS.length;n++){
+    const s=SYMS[n],t=o.t[s];
+    if(!t){log(`ПОМИЛКА: у партитурі немає символу «${sy(s)}»`);return}
+    let y=await roomify(synthKnee(readLines(t.d,t.n,o.maxAmp,2),t.len,fx,sc,sr),fx,sr);
+    // Короткі плавні краї кліпу (20 мс): хвіст відлуння обрізається по межі кліпу без клацання
+    const fd=Math.round(.02*sr);
+    for(let i=0;i<fd&&i<y.length;i++){const k=i/fd;y[i]*=k;y[y.length-1-i]*=k}
+    // Вирівнювання гучності: так само, як у нарізці справжнього запису
+    const V=lvl(y,sr);
+    let g=Math.min(Math.pow(10,(p.tgt-V.r50)/20),p.pmax/(V.pk+1e-9),Math.pow(10,p.boost/20));if(!(g>0&&isFinite(g)))g=1;
+    for(let i=0;i<y.length;i++)y[i]*=g;
+    // Відбиток для розпізнавання: найдовше коліно кліпу, так само, як для справжнього запису
+    const kn=(await findKnees(y,sr,p)).kn;
+    if(!kn.length){log(`ПОМИЛКА: у синтетичному кліпі «${sy(s)}» (коліно #${t.idx}) не знайдено коліна`);return}
+    let m=kn[0];for(const q of kn)if(q.se-q.ss>m.se-m.ss)m=q;
+    const ft=segFeat(y,sr,m).ft;
+    if(!ft){log(`ПОМИЛКА: синтетичний кліп «${sy(s)}» закороткий`);return}
+    L[s]={idx:t.idx,y,ft};
+    if(n%4===3){log(`... ${n+1} з ${SYMS.length}`);await new Promise(r=>setTimeout(r))}
+  }
+  lib=L;
+  log(`Синтетична бібліотека готова: ${SYMS.length} символів (матриця відмінності недоступна: у партитурі лише потрібні коліна)`);
+  ['bEnc','bChk','bExp','bCtx','bLive'].forEach(i=>$('#'+i).disabled=false);$('#bDec').disabled=!$('#fd').files.length;
+};
+
+// ===== Живе розпізнавання з мікрофона =====
+// Звук з мікрофона надходить шматками. З нього на льоту рахується гучність (так само, як
+// при нарізці файлу), стежимо за порогом, і коли коліно закінчилось (тиша не коротша за
+// «Паузу між колінами»), воно відразу розпізнається тим самим відбитком і тим самим DTW,
+// що й розкодування файлу, а символ дописується в рядок. Отже, символ з'являється приблизно
+// через довжину паузи після кінця коліна.
+
+const LIVE_SEC=40;          // скільки секунд звуку тримаємо в пам'яті (коліно до ~11 с + запас)
+let LV=null;                // стан поточного сеансу
+let liveStream=null,liveNode=null,liveSp=null,liveSrc=null,liveTimer=0;
+
+// Код «захоплювача» звуку: працює в окремому потоці й передає шматки по 1024 відліки
+const LIVE_WORKLET=`
+class Cap extends AudioWorkletProcessor{
+  constructor(){super();this.b=new Float32Array(1024);this.k=0}
+  process(inputs){
+    const c=inputs[0][0];if(!c)return true;
+    for(let i=0;i<c.length;i++){this.b[this.k++]=c[i];if(this.k===1024){this.port.postMessage(this.b.slice(0));this.k=0}}
+    return true;
+  }
+}
+registerProcessor('cap',Cap);`;
+
+// Розпізнавання одного коліна (повторює файлове: фазовий пошук на 7 зсувів по 2.5 мс)
+function matchKnee(x,sr){
+  const ft=features(x,sr);if(!ft)return null;
+  const ds=SYMS.map(c=>[dtw(ft,lib[c].ft),c]).sort((a,b)=>a[0]-b[0]);
+  const fs=[];
+  for(let j=1;j<8;j++){const f=features(x.subarray(j*Math.round(sr*.0025)),sr);if(f)fs.push(f)}
+  for(const q of ds.slice(0,4))for(const f of fs){const d=dtw(f,lib[q[1]].ft);if(d<q[0])q[0]=d}
+  ds.sort((a,b)=>a[0]-b[0]);
+  if(ds[0][0]>=1e5)return{sym:'?',second:'',ratio:0};
+  return{sym:ds[0][1],second:ds[1][1],ratio:ds[1][0]/ds[0][0]};
+}
+
+// Початок сеансу: чистий стан, фільтр, найкоротше коліно бібліотеки
+function liveReset(){
+  const sr=ctx.sampleRate,p=P(),cap=Math.round(LIVE_SEC*sr);
+  // Усе, що значно коротше за найкоротше коліно бібліотеки, вважаємо випадковим звуком (клацання)
+  let minK=Infinity;for(const c of SYMS)minK=Math.min(minK,lib[c].ft.n*HOPS);
+  // Фільтр верхніх частот (як у пошуку колін у файлі): прибирає низький гул перед підрахунком гучності
+  let hp=null;
+  if(p.hp>0){
+    const w0=2*Math.PI*p.hp/sr,Q=Math.pow(10,1/20),al=Math.sin(w0)/(2*Q),cs=Math.cos(w0),a0=1+al;
+    hp={b0:(1+cs)/2/a0,b1:-(1+cs)/a0,b2:(1+cs)/2/a0,a1:-2*cs/a0,a2:(1-al)/a0,x1:0,x2:0,y1:0,y2:0};
+  }
+  LV={sr,p,cap,h:Math.round(HOP*sr),w:Math.round(WIN*sr),raw:new Float32Array(cap),flt:new Float32Array(cap),n:0,hp,
+      E:[],eBase:0,nextHop:0,thr:null,kn:null,quiet:0,minDur:Math.max(.3,.5*minK),text:'',level:-120};
+}
+
+// Прийом шматка звуку
+function liveFeed(c){
+  const L=LV;if(!L)return;
+  for(let i=0;i<c.length;i++){
+    const x=c[i],k=L.n%L.cap,f=L.hp;let y=x;
+    L.raw[k]=x;
+    if(f){y=f.b0*x+f.b1*f.x1+f.b2*f.x2-f.a1*f.y1-f.a2*f.y2;f.x2=f.x1;f.x1=x;f.y2=f.y1;f.y1=y}
+    L.flt[k]=y;L.n++;
+  }
+  // Нові кроки огинаючої: гучність у дБ у вікні 10 мс з кроком 5 мс
+  while(L.nextHop*L.h+L.w<=L.n){
+    const o=L.nextHop*L.h;let s=0;
+    for(let j=0;j<L.w;j++){const v=L.flt[(o+j)%L.cap];s+=v*v}
+    L.E.push(10*Math.log10(s/L.w+1e-12));
+    liveStep(L.nextHop);
+    L.nextHop++;
+  }
+  // Щоб масив не ріс безкінечно, старі кроки (понад ~40 с) відкидаємо
+  if(L.E.length>8000){L.E.splice(0,2000);L.eBase+=2000}
+}
+
+// Один крок стеження: поріг за останніми ~20 с, початок і кінець коліна
+function liveStep(i){
+  const L=LV,e=L.E[i-L.eBase];
+  L.level=e;
+  // Поріг оновлюємо раз на 100 мс: найгучніше за останні ~20 с мінус глибина, але не нижче фону плюс запас
+  if(i%20===0&&L.E.length>=100){
+    const win=L.E.slice(-4000);let ref=-Infinity;for(const v of win)if(v>ref)ref=v;
+    const noise=win.slice().sort((a,b)=>a-b)[Math.floor(win.length*.2)];
+    L.thr=Math.max(ref-L.p.depth,noise+NOISE_DB);
+  }
+  if(L.thr===null)return;                     // перші ~0.5 с: калібрування
+  if(e>=L.thr){
+    if(!L.kn)L.kn={s:i,e:i};else L.kn.e=i;
+    L.quiet=0;
+    // Захист від безперервного шуму: надто довгу «подію» відкидаємо
+    if((i-L.kn.s)*HOP>25){log('   (відкинуто: звук триває понад 25 с без пауз)');L.kn=null}
+  }else if(L.kn){
+    L.quiet+=HOP*1000;
+    if(L.quiet>=L.p.gap){const k=L.kn;L.kn=null;L.quiet=0;liveClose(k)}
+  }
+}
+
+// Коліно закінчилось: вирізаємо його звук і розпізнаємо
+function liveClose(k){
+  const L=LV,dur=(k.e-k.s+1)*HOP+WIN;
+  if(dur<L.minDur){log(`   (пропущено короткий звук ${dur.toFixed(2)} с)`);return}
+  const pad=Math.round(PAD*L.sr),ss=k.s*L.h,se=Math.min(L.n,k.e*L.h+L.w);
+  const a=Math.max(0,ss-pad),z=Math.min(L.n,se+pad);
+  if(a<L.n-L.cap){log('   (коліно не вмістилось у пам\'ять, пропущено)');return}
+  const x=new Float32Array(z-a);
+  for(let j=0;j<x.length;j++)x[j]=L.raw[(a+j)%L.cap];
+  const r=matchKnee(x,L.sr);
+  if(!r){log('   (коліно закоротке для розпізнавання)');return}
+  L.text+=r.sym;$('#live').value=L.text;tkPush(r.sym,r.ratio);
+  log(`Живе: ${sy(r.sym)} | запас ${rt(r.ratio)}${r.ratio<LOW_CONF?' ⚠ СУМНІВНО':''} | другий варіант ${sy(r.second)} | коліно ${dur.toFixed(2)} с`);
+}
+
+// Рядок стану: рівень, поріг і що відбувається зараз
+function liveStatus(){
+  const L=LV;if(!L)return;
+  $('#liveSt').textContent=`рівень ${L.level.toFixed(0)} дБ · поріг ${L.thr===null?'калібрую…':L.thr.toFixed(0)+' дБ'} · ${L.kn?'звучить коліно':'тиша'} · розпізнано символів: ${L.text.length}`;
+}
+
+$('#bLive').onclick=async()=>{
+  if(!lib){log('Живе розпізнавання: спершу збудуйте бібліотеку.');return}
+  ac();await ctx.resume();
+  // Вимикаємо «покращення» мікрофона: вони вирізають стабільні тони, тобто саме наш спів
+  try{liveStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
+  catch(e){log('ПОМИЛКА: немає доступу до мікрофона');return}
+  liveReset();$('#live').value='';tkClear();
+  liveSrc=ctx.createMediaStreamSource(liveStream);
+  try{
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([LIVE_WORKLET],{type:'application/javascript'})));
+    liveNode=new AudioWorkletNode(ctx,'cap');
+    liveNode.port.onmessage=e=>liveFeed(e.data);
+    liveSrc.connect(liveNode);liveNode.connect(ctx.destination);
+  }catch(e){
+    // Запасний шлях для середовищ без AudioWorklet
+    liveSp=ctx.createScriptProcessor(2048,1,1);
+    liveSp.onaudioprocess=ev=>liveFeed(ev.inputBuffer.getChannelData(0).slice());
+    liveSrc.connect(liveSp);liveSp.connect(ctx.destination);
+  }
+  $('#bLive').disabled=true;$('#bLiveStop').disabled=false;
+  liveTimer=setInterval(liveStatus,200);
+  log(`\n-- Живе розпізнавання: слухаю (${ctx.sampleRate} Гц, пауза між колінами ${LV.p.gap} мс, найкоротше коліно бібліотеки ≈ ${(LV.minDur*2).toFixed(2)} с) --`);
+};
+$('#bLiveStop').onclick=()=>{
+  clearInterval(liveTimer);
+  try{if(liveNode){liveNode.disconnect();liveNode.port.onmessage=null}if(liveSp){liveSp.disconnect();liveSp.onaudioprocess=null}if(liveSrc)liveSrc.disconnect()}catch(e){}
+  if(liveStream)liveStream.getTracks().forEach(t=>t.stop());
+  liveNode=liveSp=liveSrc=liveStream=null;
+  $('#bLiveStop').disabled=true;$('#bLive').disabled=!lib;
+  log(`-- Живе розпізнавання зупинено. Текст: «${LV?LV.text:''}» --`);
+  clearTimeout(TK.idle);tkLoopStart();
+};
+
+// ===== Радіограма: бігучий рядок розпізнаного тексту і паралельний рядок моніторингу =====
+// Рядок 300 px моноширинним шрифтом: новий символ додається праворуч і зсуває старі ліворуч за межу вікна.
+// Нижче такий самий рядок: «+» під символом, який розпізнано впевнено, «?» під сумнівним (запас менший за поріг)
+// або нерозпізнаним. Коли нових символів немає ~12 с, після зупинки мікрофона і після розкодування файлу
+// рядки крутяться по колу: весь розпізнаний текст пробігає знову й знову, між повторами розділювач.
+const TK={text:'',mon:'',cw:9.6,CH:31,loop:false,raf:0,idle:0,speed:45,sep:'   ~   '};
+const TK_IDLE=12000;
+const tkMonHtml=m=>m.replace(/\?/g,'<span class="q">?</span>');
+function tkMeasure(){
+  const s=document.createElement('span');s.className='tk';s.style.cssText='position:absolute;visibility:hidden;width:auto;display:inline-block;max-width:none;border:0';
+  s.textContent='Ш'.repeat(20);document.body.appendChild(s);
+  const w=s.getBoundingClientRect().width/20;s.remove();
+  if(w>0){TK.cw=w;TK.CH=Math.max(1,Math.floor(300/w))}
+  $('#tkInfo').textContent='У вікні 300 px вміщується '+TK.CH+' символів';
+}
+function tkRender(slide){
+  $('#tkTi').textContent=TK.text;$('#tkMi').innerHTML=tkMonHtml(TK.mon);
+  if(!slide)return;
+  for(const id of ['#tkTi','#tkMi']){
+    const e=$(id);e.style.transition='none';e.style.transform='translateX('+TK.cw+'px)';
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{e.style.transition='transform .3s ease-out';e.style.transform='translateX(0)'}));
+  }
+}
+function tkLoopStop(keep){
+  TK.loop=false;cancelAnimationFrame(TK.raf);
+  for(const id of ['#tkTi','#tkMi']){const e=$(id);e.parentNode.style.justifyContent='flex-end';e.style.transition='none';e.style.transform='translateX(0)'}
+  if(!keep)tkRender(false);
+}
+function tkLoopStart(){
+  if(!TK.text)return;
+  tkMeasure();tkLoopStop(true);
+  const unit=TK.text+TK.sep,monUnit=TK.mon+' '.repeat(TK.sep.length),W=unit.length*TK.cw,k=Math.ceil(300/W)+2;
+  $('#tkTi').parentNode.style.justifyContent='flex-start';$('#tkMi').parentNode.style.justifyContent='flex-start';
+  $('#tkTi').textContent=unit.repeat(k);$('#tkMi').innerHTML=tkMonHtml(monUnit.repeat(k));
+  TK.loop=true;const t0=performance.now();
+  const step=now=>{
+    if(!TK.loop)return;
+    const pos=((now-t0)/1000*TK.speed)%W;
+    $('#tkTi').style.transform='translateX('+(-pos)+'px)';$('#tkMi').style.transform='translateX('+(-pos)+'px)';
+    TK.raf=requestAnimationFrame(step);
+  };
+  TK.raf=requestAnimationFrame(step);
+}
+function tkClear(){clearTimeout(TK.idle);tkLoopStop(true);TK.text='';TK.mon='';tkRender(false)}
+function tkPush(sym,ratio){
+  const th=+$('#tkTh').value||3;
+  tkLoopStop(true);
+  TK.text+=sym;TK.mon+=(sym!=='?'&&ratio>=th)?'+':'?';
+  tkRender(true);
+  clearTimeout(TK.idle);TK.idle=setTimeout(tkLoopStart,TK_IDLE);
+}
+$('#tkLoop').onclick=()=>{tkLoopStart()};
+$('#tkStop').onclick=()=>{clearTimeout(TK.idle);tkLoopStop(false)};
+tkMeasure();tkRender(false);
+
+// ===== Самотест =====
+$('#bT').onclick=async()=>{
+  log('\n-- Самотест --');const ok=(t,v)=>log(`${t} → ${v?'PASS':'FAIL'}`);
+  // 1) нарізка на синтетичному записі: коліно1 0.5–2.3 (з провалом 300 мс), коліно2 4.3–5.8, коліно3 11.3–12.3
+  const r=16000,seg=[[.5,0],[1,1],[.3,0],[.5,1],[2,0],[1.5,1],[5.5,0],[1,1],[.5,0]];
+  let n=0;seg.forEach(s=>n+=Math.round(s[0]*r));const x=new Float32Array(n);let o=0;
+  seg.forEach(s=>{const m=Math.round(s[0]*r);for(let i=0;i<m;i++)x[o+i]=(Math.random()-.5)*.001+(s[1]?.5*Math.sin(2*Math.PI*3000*(o+i)/r):0);o+=m});
+  const c=(await cut(x,r,{gap:1200,depth:35,hp:0,side:2000,tgt:-15,pmax:.5,boost:12})).clips,d=i=>c[i]?c[i].y.length/r:NaN;
+  ok(`Колін: ${c.length} (очікую 3)`,c.length===3);
+  ok(`Кліп 1: ${d(0).toFixed(2)}с (очікую 3.30: ділиться навпіл з паузою до кліпу 2)`,Math.abs(d(0)-3.3)<.04);
+  ok(`Кліп 2: ${d(1).toFixed(2)}с (очікую 4.50: пауза 5.5 с скорочена до 4 с)`,Math.abs(d(1)-4.5)<.04);
+  ok(`Кліп 3: ${d(2).toFixed(2)}с (очікую 3.50)`,Math.abs(d(2)-3.5)<.04);
+  ok(`Внутр. провал кл.1: ${c[0]?c[0].dip.toFixed(0):'-'} мс (очікую ~300)`,c[0]&&Math.abs(c[0].dip-300)<=20);
+  // 2) цикл «закодувати → розкодувати» на бібліотеці
+  if(!lib||!lib[SYMS[0]].y){log('(цикл кодування–розкодування: спершу нарізати запис на цій сторінці)');return}
+  for(const ph of ['привіт світе',"п'ять ґанків",'щедрий соловей співає']){
+    const syms=Array.from(ph).filter(ch=>lib[ch]),a=assemble(syms),its=await decodeSig(a.y,P()),txt=its.map(i=>i.sym).join('');
+    const mn=Math.min(...its.map(i=>i.ratio));
+    ok(`«${ph}» → «${txt}», мін. запас ${rt(mn)}`,txt===syms.join(''));
+  }
+};
+$('#bClr').onclick=()=>{$('#log').value=''};
+$('#bCopy').onclick=async()=>{
+  const l=$('#log');try{await navigator.clipboard.writeText(l.value)}catch(e){l.select();document.execCommand('copy')}
+  $('#bCopy').textContent='Скопійовано ✓';setTimeout(()=>$('#bCopy').textContent='Копіювати лог',1200);
+};
+</script></body></html>
