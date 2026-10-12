@@ -75,6 +75,7 @@ const PRM={gap:1200,depth:35,hp:800,side:2000,tgt:-15,pmax:.5,boost:12};   // п
 const P=()=>PRM;
 const ac=()=>ctx=ctx||(()=>{const A=window.AudioContext||window.webkitAudioContext;try{return new A({latencyHint:'playback',sampleRate:48000})}catch(e){return new A({latencyHint:'playback'})}})();
 const mono=b=>{const x=new Float32Array(b.length);for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c);for(let i=0;i<b.length;i++)x[i]+=d[i]/b.numberOfChannels}return x};
+const pad=i=>String(i).padStart(2,'0');
 const sy=c=>c===' '?'␣':c;
 const rt=r=>isFinite(r)?r.toFixed(2):'∞';
 const b64=u=>{let s='';for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};
