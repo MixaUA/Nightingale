@@ -11,8 +11,11 @@ h1{font-size:18px;margin:4px 0 8px}h2{font-size:14px;margin:0 0 8px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px}
 button{padding:8px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);font:inherit}
 button.p{background:var(--ac);color:#fff;border-color:var(--ac)}button:disabled{opacity:.4}
-#bHold{width:100%;padding:22px 12px;font-size:18px;font-weight:600;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
-#bHold.on{background:var(--er);border-color:var(--er)}#bHold.rdy{background:var(--ok);border-color:var(--ok)}
+#bar{position:relative;height:64px;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--bg);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:ew-resize}
+#bar.dis{opacity:.5}
+#barFill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ac)}
+#bar.lock #barFill{background:var(--ok)}#bar.pull #barFill{background:var(--er)}
+#barTxt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 16px/1.2 system-ui,sans-serif;color:var(--fg);text-shadow:0 0 4px var(--bg),0 0 8px var(--bg);pointer-events:none;text-align:center;padding:0 8px}
 .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}
 textarea{width:100%;box-sizing:border-box;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px;font:15px/1.4 system-ui,sans-serif;resize:none;overflow:auto}
 #txt,#out,#live{height:64px}#log{height:clamp(120px,30vh,220px);max-height:220px;font:12px/1.35 ui-monospace,monospace;white-space:pre-wrap}
@@ -51,7 +54,7 @@ details summary{cursor:pointer;color:var(--mu);font-size:13px}
 
 <div class="card">
 <h2>Живе розпізнавання: мікрофон → текст</h2>
-<button class="p" id="bHold" disabled>🎤 Тримай і співай</button>
+<div id="bar"><div id="barFill"></div><div id="barTxt">Бібліотека будується…</div></div>
 <div id="holdSt" style="font-size:13px;color:var(--mu);margin:6px 0;min-height:17px"></div>
 <div class="row"><button class="p" id="bLive" disabled>● Слухати</button><button id="bLiveStop" disabled>■ Стоп</button></div>
 <div id="liveSt" style="font-size:13px;color:var(--mu);margin:6px 0"></div>
@@ -521,125 +524,119 @@ function liveStop(){
 $('#bLive').onclick=()=>{liveStart()};
 $('#bLiveStop').onclick=liveStop;
 
-// ===== Кнопка «тримай і співай» =====
-// Натиснув: очищення, мікрофон, екран не гасне. Тримаєш: слухаємо. Відпустив: дослуховуємо відкрите коліно
-// (до паузи між колінами + 0.7 с), вимикаємо мікрофон і запускаємо бігучий рядок.
-const hold={active:false,seq:0,tail:0,ui:0};
+// ===== Смуга «підтягуй, щоб слухати» =====
+// Смуга худне за BAR.sec секунд, поки вона не порожня, запис іде. Підтягнути її можна лише рухом пальця вправо і лише коли
+// лишилось не більше BAR.lock смуги: дотягнута до краю, вона не реагує, доки не дійде до половини. Нерухомий палець
+// подій не створює, тому «потримати» нічого не дає: до екрана доводиться торкатись рухом щонайменше раз на BAR.sec секунд,
+// а справжні дотики система рахує активністю користувача і не гасить екран. Wake Lock не використовуємо.
+const BAR={sec:10,lock:.5,intent:12};            // тривалість смуги (с), поріг блокування (частка), рух для початку (px)
+const bar={phase:'idle',level:0,seq:0,g:null,t:0,raf:0,tail:0};   // phase: idle | start | run | tail
 const holdSt=t=>{$('#holdSt').textContent=t};
-// Екран тримаємо двома незалежними способами: Wake Lock (основний) і беззвучне відео в циклі (запасний).
-// Стан обох видно під кнопкою, а помилки йдуть у журнал.
-const KA={w:null,wl:'',v:'',vid:null,retry:0};
-const kaShow=()=>{if(hold.active)holdSt('🔒 екран: Wake Lock '+(KA.wl||'…')+' · відео '+(KA.v||'…'))};
-async function wlAcquire(){
-  if(KA.w)return;
-  if(!('wakeLock' in navigator)){KA.wl='немає';log('Wake Lock: цей браузер його не підтримує');kaShow();return}
-  try{
-    const w=await navigator.wakeLock.request('screen');
-    if(!hold.active){w.release().catch(()=>{});return}   // відпустили, поки чекали
-    KA.w=w;KA.wl='✓';
-    w.addEventListener('release',()=>{
-      if(KA.w!==w)return;
-      KA.w=null;KA.wl='✗';
-      log('Wake Lock: систему зняла утримання'+(hold.active?' під час утримання кнопки':''));
-      kaShow();
-      if(hold.active&&!document.hidden&&KA.retry++<3)setTimeout(wlAcquire,300);
-    });
-  }catch(e){KA.wl='✗';log('Wake Lock: відмова ('+(e.name||'помилка')+': '+(e.message||'')+')')}
-  kaShow();
+const barW=()=>$('#bar').clientWidth||300;
+function barDraw(){
+  const b=$('#bar'),on=bar.phase==='start'||bar.phase==='run',locked=on&&bar.level>BAR.lock;
+  $('#barFill').style.width=(bar.level*100).toFixed(1)+'%';
+  b.classList.toggle('lock',locked);b.classList.toggle('pull',on&&!locked);b.classList.toggle('dis',!lib);
+  let t;
+  if(!lib)t='Бібліотека будується…';
+  else if(bar.phase==='idle')t='Потягни вправо, щоб слухати';
+  else if(bar.phase==='tail')t='… дослуховую';
+  else t=((bar.phase==='start'||(LV&&LV.thr===null))?'калібрую · ':'')+(locked?'🔒 ':'→ потягни · ')+(bar.level*BAR.sec).toFixed(1)+' с';
+  $('#barTxt').textContent=t;
 }
-function vidOn(){
-  try{
-    if(!KA.vid){
-      const v=document.createElement('video');
-      v.setAttribute('playsinline','');v.muted=true;v.defaultMuted=true;v.loop=true;
-      v.style.cssText='position:fixed;left:0;top:0;width:8px;height:8px;opacity:.01;pointer-events:none';
-      v.innerHTML='<source src="data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAALCEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggKs7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECfQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYgO/bqv1Tn5MpyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhAvrwgDgibCBQLqBQJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYgO/bqv1Tn5MmfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDIuMDAwMDAwMDAwAB9DtnVBB+eBAKOqgQAAgPACAJ0BKkAAQAAARwiFhYiFhIgCAgAGcDxCYAqyIPcwAP7/q1CAo5aBAMgA0QEAARAQABgAGFgv9AAIjoAAo5aBAZAA0QEAARAQABgAGFgv9AAIjoAAo5aBAlgA0QEAARAQABgAGFgv9AAIjoAAo5aBAyAA0QEAARAQABgAGFgv9AAIjoAAo5aBA+gA0QEAARAQABgAGFgv9AAIjoAAo5aBBLAA0QEAARAQABgAGFgv9AAIjoAAo5aBBXgA0QEAARAQFGAAYWC/0AAiOgAAo5aBBkAA0QEAARAQABgAGFgv9AAIjoAAo5aBBwgA0QEAARAQABgAGFgv9AAIjoAAHFO7a5G7j7OBALeK94EB8YIBn/CBAw==" type="video/webm"><source src="data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAANMbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAnZ0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAEAAAABAAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAAAAABAAAAAAHubWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAAUABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABmW1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAVlzdGJsAAAAuXN0c2QAAAAAAAAAAQAAAKlhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAEAAQABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAAL2F2Y0MBQsAK/+EAF2dCwArZBCbARAAAAwAEAAADACg8SJkgAQAFaMuDyyAAAAAQcGFzcAAAAAEAAAABAAAAFGJ0cnQAAAAAAAALqAAAC6gAAAAYc3R0cwAAAAAAAAABAAAACgAACAAAAAAUc3RzcwAAAAAAAAABAAAAAQAAABxzdHNjAAAAAAAAAAEAAAABAAAACgAAAAEAAAA8c3RzegAAAAAAAAAAAAAACgAAAo8AAAAKAAAACwAAAAoAAAAKAAAACgAAAAoAAAAKAAAACgAAAAoAAAAUc3RjbwAAAAAAAAABAAADfAAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAALybWRhdAAAAnAGBf//bNxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0zIGRlYmxvY2s9MTowOjAgYW5hbHlzZT0weDE6MHgxMTEgbWU9aGV4IHN1Ym1lPTcgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MSBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTAgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9LTIgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTUgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAAXZYiEBHyYoAA2IycnJ1111111111114AAAAAGQZo4CPhGAAAAB0GaVAI+EYAAAAAGQZpgEfCMAAAABkGagBHwjAAAAAZBmqAR8IwAAAAGQZrAEfCMAAAABkGa4BHwjAAAAAZBmwAQ8IwAAAAGQZsgP8Iw" type="video/mp4">';
-      v.addEventListener('pause',()=>{if(hold.active)v.play().catch(()=>{})});
-      document.body.appendChild(v);KA.vid=v;
-    }
-    const p=KA.vid.play();
-    if(p&&p.then)p.then(()=>{KA.v='✓';kaShow()}).catch(e=>{KA.v='✗';log('Відео-утримання екрана: відмова ('+(e.name||'помилка')+')');kaShow()});
-  }catch(e){KA.v='✗';log('Відео-утримання екрана: '+e.message)}
+function barTick(now){
+  if(bar.phase==='idle'){bar.raf=0;barDraw();return}
+  bar.raf=requestAnimationFrame(barTick);
+  const dt=Math.min(.25,(now-bar.t)/1000);bar.t=now;
+  if(bar.phase==='run'&&!liveStream){barIdle();return}      // мікрофон зупинили кнопкою «■ Стоп»
+  if(bar.phase==='start'||bar.phase==='run'){
+    bar.level-=dt/BAR.sec;
+    if(bar.level<=0){bar.level=0;barExpire()}
+  }
+  barDraw();
 }
-function kaOn(){KA.retry=0;KA.wl=KA.w?'✓':'';KA.v='';wlAcquire();vidOn();kaShow()}
-function kaOff(){
-  try{if(KA.w)KA.w.release()}catch(e){}
-  KA.w=null;KA.wl='';
-  try{if(KA.vid)KA.vid.pause()}catch(e){}
-  KA.v='';
-}
-function holdBtn(cls,txt){const b=$('#bHold');b.classList.toggle('on',cls==='on');b.classList.toggle('rdy',cls==='rdy');b.textContent=txt}
-function holdIdle(){clearInterval(hold.ui);clearTimeout(hold.tail);hold.tail=0;holdBtn('','🎤 Тримай і співай');kaOff()}
-// Завершити сеанс: дослухати відкрите коліно і зупинити
-function holdFinish(force){
-  clearTimeout(hold.tail);hold.tail=0;clearInterval(hold.ui);
-  if(LV&&LV.kn){const k=LV.kn;LV.kn=null;LV.quiet=0;liveClose(k)}   // на таймауті закриваємо те, що є
+function barKick(){bar.t=performance.now();if(!bar.raf)bar.raf=requestAnimationFrame(barTick)}
+function barIdle(){bar.seq++;bar.phase='idle';bar.level=0;bar.g=null;clearTimeout(bar.tail);bar.tail=0;barDraw()}
+// Завершити сеанс: закрити відкрите коліно (на таймауті), зупинити мікрофон
+function barFinish(){
+  clearTimeout(bar.tail);bar.tail=0;
+  if(liveStream&&LV&&LV.kn){const k=LV.kn;LV.kn=null;LV.quiet=0;liveClose(k)}
   if(liveStream)liveStop();
-  holdIdle();
+  barIdle();
 }
-function holdEnd(){
-  if(!hold.active)return;
-  hold.active=false;hold.seq++;clearInterval(hold.ui);
-  if(!liveStream){holdIdle();return}
-  if(!LV||!LV.kn){holdFinish();return}                  // нічого не звучить: зупиняємо відразу
-  holdBtn('','… дослуховую');holdSt('');
+// Смуга спорожніла: дослухати відкрите коліно (до паузи між колінами + 0.7 с) і зупинитись
+function barExpire(){
+  bar.g=null;
+  if(bar.phase==='start'){barIdle();return}                // мікрофон не встиг піднятися
+  if(bar.phase!=='run')return;
+  if(!liveStream){barIdle();return}
+  if(!LV||!LV.kn){barFinish();return}
+  bar.phase='tail';
   const limit=LV.p.gap+700,t0=performance.now();
   const poll=()=>{
-    if(!LV||!liveStream){holdIdle();return}
-    if(!LV.kn||performance.now()-t0>limit){holdFinish();return}
-    hold.tail=setTimeout(poll,100);
+    if(bar.phase!=='tail')return;
+    if(!LV||!liveStream){barIdle();return}
+    if(!LV.kn||performance.now()-t0>limit){barFinish();return}
+    bar.tail=setTimeout(poll,100);
   };
-  hold.tail=setTimeout(poll,100);
+  bar.tail=setTimeout(poll,100);
 }
-async function holdStart(e){
-  if(hold.active)return;
-  if(!lib){holdSt('Бібліотека ще не готова');return}
-  if(hold.tail)holdFinish();                              // новий сеанс під час «хвоста» старого: старий закриваємо
-  if(liveStream)liveStop();                               // якщо працювало старе «● Слухати», забираємо мікрофон собі
-  hold.active=true;const my=++hold.seq;
-  holdSt('');holdBtn('on','🎤 Готуюсь… тримай');
-  kaOn();
-  const cancelled=()=>!hold.active||hold.seq!==my;
-  // Перший раз браузер питає дозвіл: діалог перериває утримання, тож просимо дозвіл окремо
+async function barBegin(acc){
+  if(bar.phase==='tail')barFinish();                        // новий сеанс під час «хвоста» старого
+  if(liveStream)liveStop();                                 // якщо працювало старе «● Слухати», мікрофон забираємо собі
+  const my=++bar.seq;
+  bar.phase='start';bar.level=Math.min(1,acc/barW());holdSt('');barKick();barDraw();
+  const dead=()=>bar.seq!==my;
+  // Перший раз браузер питає дозвіл: діалог перериває жест, тож просимо дозвіл окремо
   let perm='';try{perm=(await navigator.permissions.query({name:'microphone'})).state}catch(x){}
+  if(dead())return;
   if(perm==='prompt'||perm==='denied'){
-    hold.active=false;holdIdle();
+    barIdle();
     if(perm==='denied'){holdSt('Мікрофон заблоковано в налаштуваннях сайту');return}
-    try{(await navigator.mediaDevices.getUserMedia({audio:true})).getTracks().forEach(t=>t.stop());holdSt('Дозвіл надано. Тепер натисни й тримай ще раз.')}
+    try{(await navigator.mediaDevices.getUserMedia({audio:true})).getTracks().forEach(t=>t.stop());holdSt('Дозвіл надано. Тепер потягни ще раз.')}
     catch(x){holdSt('Немає дозволу на мікрофон')}
     return;
   }
-  if(cancelled())return;
-  // Аудіо запускається лише після дотику (правило браузера). Якщо ще не запущене: розблоковуємо й просимо повторити
+  // Аудіо запускається лише після дотику (правило браузера): якщо ще не запущене, розблоковуємо й просимо повторити
   ac();
   if(ctx.state!=='running')await Promise.race([ctx.resume().catch(()=>{}),new Promise(r=>setTimeout(r,500))]);
-  if(ctx.state!=='running'){hold.active=false;holdIdle();holdSt('Аудіо щойно розблоковано. Натисни й тримай ще раз.');return}
-  if(cancelled()){holdIdle();return}
+  if(dead())return;
+  if(ctx.state!=='running'){barIdle();holdSt('Аудіо щойно розблоковано. Потягни ще раз.');return}
   const ok=await liveStart();
-  if(!ok){hold.active=false;holdIdle();return}
-  if(cancelled()){liveStop();holdIdle();return}          // відпустили, поки мікрофон піднімався
-  // Показуємо, коли можна співати: поріг готовий лише після ~0.5 с
-  hold.ui=setInterval(()=>{
-    if(!hold.active){clearInterval(hold.ui);return}
-    if(LV&&LV.thr!==null)holdBtn('rdy','🎤 Співай · тримай');
-  },80);
+  if(dead()){if(ok&&liveStream)liveStop();return}           // смуга спорожніла, поки мікрофон піднімався
+  if(!ok){barIdle();return}
+  bar.phase='run';
 }
 {
-  const b=$('#bHold');
-  b.addEventListener('pointerdown',e=>{
+  const B=$('#bar');
+  B.addEventListener('pointerdown',e=>{
     e.preventDefault();
-    try{b.setPointerCapture(e.pointerId)}catch(x){}
-    holdStart(e);
+    if(!lib){holdSt('Бібліотека ще не готова');return}
+    const running=bar.phase==='start'||bar.phase==='run';
+    if(running&&bar.level>BAR.lock)return;                   // заблоковано, доки не дійде до половини
+    try{B.setPointerCapture(e.pointerId)}catch(x){}
+    bar.g={id:e.pointerId,x:e.clientX,acc:0};
   });
-  for(const t of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(t,holdEnd);
-  b.addEventListener('contextmenu',e=>e.preventDefault());
-  // Повернення на вкладку: утримання екрана знімається системою, коли вкладка прихована
-  document.addEventListener('visibilitychange',()=>{
-    if(document.hidden){if(hold.active||hold.tail){hold.active=false;hold.seq++;holdFinish()}}
-    else if(hold.active){kaOn()}
+  B.addEventListener('pointermove',e=>{
+    const g=bar.g;if(!g||e.pointerId!==g.id)return;
+    const dx=e.clientX-g.x;g.x=e.clientX;
+    if(dx<=0)return;                                         // лише рух вправо
+    if(bar.phase==='idle'||bar.phase==='tail'){
+      g.acc+=dx;
+      if(g.acc>=BAR.intent)barBegin(g.acc);
+      return;
+    }
+    bar.level=Math.min(1,bar.level+dx/barW());               // смуга росте на відстань руху пальця, а не на «куди торкнувся»
+    if(bar.level>=1)bar.g=null;                              // дотягнули до краю: далі не реагує
+    barDraw();
   });
+  const up=e=>{if(bar.g&&e.pointerId===bar.g.id)bar.g=null};
+  for(const t of ['pointerup','pointercancel','lostpointercapture'])B.addEventListener(t,up);
+  B.addEventListener('contextmenu',e=>e.preventDefault());
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&bar.phase!=='idle'){bar.g=null;barFinish()}});
   // Перший дотик на сторінці розблоковує аудіо (правило автозапуску)
   document.addEventListener('pointerup',()=>{if(ctx&&ctx.state!=='running')ctx.resume().catch(()=>{})},true);
+  barDraw();
 }
 
 // ===== Радіограма: бігучий рядок розпізнаного тексту і паралельний рядок моніторингу =====
@@ -702,7 +699,7 @@ function tkPush(sym,ratio){
 // Немає нових символів ~12 с: бігучий рядок крутиться, а старе «● Слухати» вимикає мікрофон.
 // Під час утримання нової кнопки мікрофон не чіпаємо: його вимкне відпускання.
 function tkIdle(){
-  if(hold.active)return;
+  if(bar.phase!=='idle')return;
   if(liveStream)liveStop();else tkLoopStart();
 }
 $('#tkLoop').onclick=()=>{tkLoopStart()};
@@ -714,7 +711,7 @@ const SCORE_URL='solovey-score.json';
 function setStatus(t,cls){const e=$('#libSt');e.textContent=t;e.className=cls||''}
 async function buildFromScore(o,name){
   ac();const sr=ctx.sampleRate,p=P();bank=buildBank(sr);lib=null;
-  ['bEnc','bDec','bLive','bHold'].forEach(i=>$('#'+i).disabled=true);
+  ['bEnc','bDec','bLive'].forEach(i=>$('#'+i).disabled=true);barDraw();
   log(`\n-- Бібліотека з партитури: ${name} --`);
   if(o.sr!==sr){const m=`Партитура для ${o.sr} Гц, а цей пристрій дає ${sr} Гц`;log('ПОМИЛКА: '+m);setStatus(m,'err');return}
   const fx=o.fx,sc={fft:o.fft,hop:o.hop,maxAmp:o.maxAmp},L={};
@@ -745,7 +742,7 @@ async function buildFromScore(o,name){
   lib=L;
   log(`Бібліотека готова: ${SYMS.length} символів`);
   setStatus(`Бібліотека готова: ${SYMS.length} символів`,'ok');
-  $('#bEnc').disabled=false;$('#bLive').disabled=false;$('#bHold').disabled=false;$('#bDec').disabled=!$('#fd').files.length;
+  $('#bEnc').disabled=false;$('#bLive').disabled=false;barDraw();$('#bDec').disabled=!$('#fd').files.length;
 }
 async function loadScore(){
   setStatus('Завантажую партитуру…');
