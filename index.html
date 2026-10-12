@@ -11,6 +11,8 @@ h1{font-size:18px;margin:4px 0 8px}h2{font-size:14px;margin:0 0 8px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px}
 button{padding:8px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);font:inherit}
 button.p{background:var(--ac);color:#fff;border-color:var(--ac)}button:disabled{opacity:.4}
+#bHold{width:100%;padding:22px 12px;font-size:18px;font-weight:600;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+#bHold.on{background:var(--er);border-color:var(--er)}#bHold.rdy{background:var(--ok);border-color:var(--ok)}
 .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}
 textarea{width:100%;box-sizing:border-box;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px;font:15px/1.4 system-ui,sans-serif;resize:none;overflow:auto}
 #txt,#out,#live{height:64px}#log{height:clamp(120px,30vh,220px);max-height:220px;font:12px/1.35 ui-monospace,monospace;white-space:pre-wrap}
@@ -49,6 +51,8 @@ details summary{cursor:pointer;color:var(--mu);font-size:13px}
 
 <div class="card">
 <h2>Живе розпізнавання: мікрофон → текст</h2>
+<button class="p" id="bHold" disabled>🎤 Тримай і співай</button>
+<div id="holdSt" style="font-size:13px;color:var(--mu);margin:6px 0;min-height:17px"></div>
 <div class="row"><button class="p" id="bLive" disabled>● Слухати</button><button id="bLiveStop" disabled>■ Стоп</button></div>
 <div id="liveSt" style="font-size:13px;color:var(--mu);margin:6px 0"></div>
 <div class="tk" id="tkT"><div class="tki" id="tkTi"></div></div>
@@ -475,30 +479,37 @@ function liveStatus(){
   $('#liveSt').textContent=`рівень ${L.level.toFixed(0)} дБ · поріг ${L.thr===null?'калібрую…':L.thr.toFixed(0)+' дБ'} · ${L.kn?'звучить коліно':'тиша'} · розпізнано символів: ${L.text.length}`;
 }
 
-$('#bLive').onclick=async()=>{
-  if(!lib){log('Живе розпізнавання: спершу збудуйте бібліотеку.');return}
-  ac();await ctx.resume();
-  // Вимикаємо «покращення» мікрофона: вони вирізають стабільні тони, тобто саме наш спів
-  try{liveStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
-  catch(e){log('ПОМИЛКА: немає доступу до мікрофона');return}
-  liveReset();$('#live').value='';tkClear();
-  liveSrc=ctx.createMediaStreamSource(liveStream);
+let workletReady=false,liveBusy=false;
+async function liveStart(){
+  if(!lib){log('Живе розпізнавання: спершу збудуйте бібліотеку.');return false}
+  if(liveStream||liveBusy)return false;
+  liveBusy=true;
   try{
-    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([LIVE_WORKLET],{type:'application/javascript'})));
-    liveNode=new AudioWorkletNode(ctx,'cap');
-    liveNode.port.onmessage=e=>liveFeed(e.data);
-    liveSrc.connect(liveNode);liveNode.connect(ctx.destination);
-  }catch(e){
-    // Запасний шлях для середовищ без AudioWorklet
-    liveSp=ctx.createScriptProcessor(2048,1,1);
-    liveSp.onaudioprocess=ev=>liveFeed(ev.inputBuffer.getChannelData(0).slice());
-    liveSrc.connect(liveSp);liveSp.connect(ctx.destination);
-  }
-  $('#bLive').disabled=true;$('#bLiveStop').disabled=false;
-  liveTimer=setInterval(liveStatus,200);
-  log(`\n-- Живе розпізнавання: слухаю (${ctx.sampleRate} Гц, пауза між колінами ${LV.p.gap} мс, найкоротше коліно бібліотеки ≈ ${(LV.minDur*2).toFixed(2)} с) --`);
-};
-$('#bLiveStop').onclick=()=>{
+    ac();await ctx.resume();
+    // Вимикаємо «покращення» мікрофона: вони вирізають стабільні тони, тобто саме наш спів
+    try{liveStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
+    catch(e){log('ПОМИЛКА: немає доступу до мікрофона');return false}
+    liveReset();$('#live').value='';tkClear();
+    liveSrc=ctx.createMediaStreamSource(liveStream);
+    try{
+      // Модуль реєструємо один раз на AudioContext: повторне додавання падало б і мовчки вмикало запасний шлях
+      if(!workletReady){await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([LIVE_WORKLET],{type:'application/javascript'})));workletReady=true}
+      liveNode=new AudioWorkletNode(ctx,'cap');
+      liveNode.port.onmessage=e=>liveFeed(e.data);
+      liveSrc.connect(liveNode);liveNode.connect(ctx.destination);
+    }catch(e){
+      // Запасний шлях для середовищ без AudioWorklet
+      liveSp=ctx.createScriptProcessor(2048,1,1);
+      liveSp.onaudioprocess=ev=>liveFeed(ev.inputBuffer.getChannelData(0).slice());
+      liveSrc.connect(liveSp);liveSp.connect(ctx.destination);
+    }
+    $('#bLive').disabled=true;$('#bLiveStop').disabled=false;
+    liveTimer=setInterval(liveStatus,200);
+    log(`\n-- Живе розпізнавання: слухаю (${ctx.sampleRate} Гц, пауза між колінами ${LV.p.gap} мс, найкоротше коліно бібліотеки ≈ ${(LV.minDur*2).toFixed(2)} с) --`);
+    return true;
+  }finally{liveBusy=false}
+}
+function liveStop(){
   clearInterval(liveTimer);
   try{if(liveNode){liveNode.disconnect();liveNode.port.onmessage=null}if(liveSp){liveSp.disconnect();liveSp.onaudioprocess=null}if(liveSrc)liveSrc.disconnect()}catch(e){}
   if(liveStream)liveStream.getTracks().forEach(t=>t.stop());
@@ -506,7 +517,97 @@ $('#bLiveStop').onclick=()=>{
   $('#bLiveStop').disabled=true;$('#bLive').disabled=!lib;
   log(`-- Живе розпізнавання зупинено. Текст: «${LV?LV.text:''}» --`);
   clearTimeout(TK.idle);tkLoopStart();
-};
+}
+$('#bLive').onclick=()=>{liveStart()};
+$('#bLiveStop').onclick=liveStop;
+
+// ===== Кнопка «тримай і співай» =====
+// Натиснув: очищення, мікрофон, екран не гасне. Тримаєш: слухаємо. Відпустив: дослуховуємо відкрите коліно
+// (до паузи між колінами + 0.7 с), вимикаємо мікрофон і запускаємо бігучий рядок.
+const hold={active:false,seq:0,tail:0,ui:0,wl:null};
+const holdSt=t=>{$('#holdSt').textContent=t};
+async function wakeOn(){
+  if(!('wakeLock' in navigator)){holdSt('⚠ Цей браузер не вміє тримати екран ввімкненим, екран може згаснути');return}
+  try{
+    const w=await navigator.wakeLock.request('screen');
+    if(!hold.active){w.release().catch(()=>{});return}   // відпустили, поки чекали дозвіл
+    hold.wl=w;w.addEventListener('release',()=>{if(hold.wl===w)hold.wl=null});
+  }catch(e){holdSt('⚠ Екран можуть вимкнути: система не дала утримати його ввімкненим ('+(e.name||'помилка')+')')}
+}
+function wakeOff(){try{if(hold.wl)hold.wl.release()}catch(e){}hold.wl=null}
+function holdBtn(cls,txt){const b=$('#bHold');b.classList.toggle('on',cls==='on');b.classList.toggle('rdy',cls==='rdy');b.textContent=txt}
+function holdIdle(){clearInterval(hold.ui);clearTimeout(hold.tail);hold.tail=0;holdBtn('','🎤 Тримай і співай');wakeOff()}
+// Завершити сеанс: дослухати відкрите коліно і зупинити
+function holdFinish(force){
+  clearTimeout(hold.tail);hold.tail=0;clearInterval(hold.ui);
+  if(LV&&LV.kn){const k=LV.kn;LV.kn=null;LV.quiet=0;liveClose(k)}   // на таймауті закриваємо те, що є
+  if(liveStream)liveStop();
+  holdIdle();
+}
+function holdEnd(){
+  if(!hold.active)return;
+  hold.active=false;hold.seq++;clearInterval(hold.ui);
+  if(!liveStream){holdIdle();return}
+  if(!LV||!LV.kn){holdFinish();return}                  // нічого не звучить: зупиняємо відразу
+  holdBtn('','… дослуховую');holdSt('');
+  const limit=LV.p.gap+700,t0=performance.now();
+  const poll=()=>{
+    if(!LV||!liveStream){holdIdle();return}
+    if(!LV.kn||performance.now()-t0>limit){holdFinish();return}
+    hold.tail=setTimeout(poll,100);
+  };
+  hold.tail=setTimeout(poll,100);
+}
+async function holdStart(e){
+  if(hold.active)return;
+  if(!lib){holdSt('Бібліотека ще не готова');return}
+  if(hold.tail)holdFinish();                              // новий сеанс під час «хвоста» старого: старий закриваємо
+  if(liveStream)liveStop();                               // якщо працювало старе «● Слухати», забираємо мікрофон собі
+  hold.active=true;const my=++hold.seq;
+  holdSt('');holdBtn('on','🎤 Готуюсь… тримай');
+  wakeOn();
+  const cancelled=()=>!hold.active||hold.seq!==my;
+  // Перший раз браузер питає дозвіл: діалог перериває утримання, тож просимо дозвіл окремо
+  let perm='';try{perm=(await navigator.permissions.query({name:'microphone'})).state}catch(x){}
+  if(perm==='prompt'||perm==='denied'){
+    hold.active=false;holdIdle();
+    if(perm==='denied'){holdSt('Мікрофон заблоковано в налаштуваннях сайту');return}
+    try{(await navigator.mediaDevices.getUserMedia({audio:true})).getTracks().forEach(t=>t.stop());holdSt('Дозвіл надано. Тепер натисни й тримай ще раз.')}
+    catch(x){holdSt('Немає дозволу на мікрофон')}
+    return;
+  }
+  if(cancelled())return;
+  // Аудіо запускається лише після дотику (правило браузера). Якщо ще не запущене: розблоковуємо й просимо повторити
+  ac();
+  if(ctx.state!=='running')await Promise.race([ctx.resume().catch(()=>{}),new Promise(r=>setTimeout(r,500))]);
+  if(ctx.state!=='running'){hold.active=false;holdIdle();holdSt('Аудіо щойно розблоковано. Натисни й тримай ще раз.');return}
+  if(cancelled()){holdIdle();return}
+  const ok=await liveStart();
+  if(!ok){hold.active=false;holdIdle();return}
+  if(cancelled()){liveStop();holdIdle();return}          // відпустили, поки мікрофон піднімався
+  // Показуємо, коли можна співати: поріг готовий лише після ~0.5 с
+  hold.ui=setInterval(()=>{
+    if(!hold.active){clearInterval(hold.ui);return}
+    if(LV&&LV.thr!==null)holdBtn('rdy','🎤 Співай · тримай');
+  },80);
+}
+{
+  const b=$('#bHold');
+  b.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    try{b.setPointerCapture(e.pointerId)}catch(x){}
+    holdStart(e);
+  });
+  for(const t of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(t,holdEnd);
+  b.addEventListener('contextmenu',e=>e.preventDefault());
+  // Повернення на вкладку: утримання екрана знімається системою, коли вкладка прихована
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){if(hold.active||hold.tail){hold.active=false;hold.seq++;holdFinish()}}
+    else if(hold.active&&!hold.wl)wakeOn();
+  });
+  // Перший дотик на сторінці розблоковує аудіо (правило автозапуску)
+  document.addEventListener('pointerup',()=>{if(ctx&&ctx.state!=='running')ctx.resume().catch(()=>{})},true);
+}
 
 // ===== Радіограма: бігучий рядок розпізнаного тексту і паралельний рядок моніторингу =====
 // Рядок 300 px моноширинним шрифтом: новий символ додається праворуч і зсуває старі ліворуч за межу вікна.
@@ -557,7 +658,13 @@ function tkPush(sym,ratio){
   tkLoopStop(true);
   TK.text+=sym;TK.mon+=(sym!=='?'&&ratio>=th)?'+':'?';
   tkRender(true);
-  clearTimeout(TK.idle);TK.idle=setTimeout(tkLoopStart,TK_IDLE);
+  clearTimeout(TK.idle);TK.idle=setTimeout(tkIdle,TK_IDLE);
+}
+// Немає нових символів ~12 с: бігучий рядок крутиться, а старе «● Слухати» вимикає мікрофон.
+// Під час утримання нової кнопки мікрофон не чіпаємо: його вимкне відпускання.
+function tkIdle(){
+  if(hold.active)return;
+  if(liveStream)liveStop();else tkLoopStart();
 }
 $('#tkLoop').onclick=()=>{tkLoopStart()};
 $('#tkStop').onclick=()=>{clearTimeout(TK.idle);tkLoopStop(false)};
@@ -568,7 +675,7 @@ const SCORE_URL='solovey-score.json';
 function setStatus(t,cls){const e=$('#libSt');e.textContent=t;e.className=cls||''}
 async function buildFromScore(o,name){
   ac();const sr=ctx.sampleRate,p=P();bank=buildBank(sr);lib=null;
-  ['bEnc','bDec','bLive'].forEach(i=>$('#'+i).disabled=true);
+  ['bEnc','bDec','bLive','bHold'].forEach(i=>$('#'+i).disabled=true);
   log(`\n-- Бібліотека з партитури: ${name} --`);
   if(o.sr!==sr){const m=`Партитура для ${o.sr} Гц, а цей пристрій дає ${sr} Гц`;log('ПОМИЛКА: '+m);setStatus(m,'err');return}
   const fx=o.fx,sc={fft:o.fft,hop:o.hop,maxAmp:o.maxAmp},L={};
@@ -599,7 +706,7 @@ async function buildFromScore(o,name){
   lib=L;
   log(`Бібліотека готова: ${SYMS.length} символів`);
   setStatus(`Бібліотека готова: ${SYMS.length} символів`,'ok');
-  $('#bEnc').disabled=false;$('#bLive').disabled=false;$('#bDec').disabled=!$('#fd').files.length;
+  $('#bEnc').disabled=false;$('#bLive').disabled=false;$('#bHold').disabled=false;$('#bDec').disabled=!$('#fd').files.length;
 }
 async function loadScore(){
   setStatus('Завантажую партитуру…');
