@@ -27,7 +27,7 @@ input[type=number]{width:56px;padding:4px;border:1px solid var(--bd);border-radi
 .tk{box-sizing:content-box;width:300px;max-width:100%;overflow:hidden;white-space:pre;display:flex;justify-content:flex-end;
   font:16px/1.5 ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;font-variant-ligatures:none;
   background:#0d1117;color:#7ee787;border:1px solid var(--bd);border-radius:4px}
-.tkm{color:#8b949e;margin-top:2px}.tkm .q{color:#ff7b72;font-weight:700}.tki{white-space:pre;flex:none}
+.tkm{color:#8b949e;margin-top:2px}.tkm .q{color:#ff7b72;font-weight:700}.tki{white-space:pre;flex:none}.tki i{display:inline-block;width:var(--cw,9.6px);text-align:center;font-style:normal}
 details summary{cursor:pointer;color:var(--mu);font-size:13px}
 </style></head><body><main>
 <h1>Соловейковий шифр</h1>
@@ -524,19 +524,52 @@ $('#bLiveStop').onclick=liveStop;
 // ===== Кнопка «тримай і співай» =====
 // Натиснув: очищення, мікрофон, екран не гасне. Тримаєш: слухаємо. Відпустив: дослуховуємо відкрите коліно
 // (до паузи між колінами + 0.7 с), вимикаємо мікрофон і запускаємо бігучий рядок.
-const hold={active:false,seq:0,tail:0,ui:0,wl:null};
+const hold={active:false,seq:0,tail:0,ui:0};
 const holdSt=t=>{$('#holdSt').textContent=t};
-async function wakeOn(){
-  if(!('wakeLock' in navigator)){holdSt('⚠ Цей браузер не вміє тримати екран ввімкненим, екран може згаснути');return}
+// Екран тримаємо двома незалежними способами: Wake Lock (основний) і беззвучне відео в циклі (запасний).
+// Стан обох видно під кнопкою, а помилки йдуть у журнал.
+const KA={w:null,wl:'',v:'',vid:null,retry:0};
+const kaShow=()=>{if(hold.active)holdSt('🔒 екран: Wake Lock '+(KA.wl||'…')+' · відео '+(KA.v||'…'))};
+async function wlAcquire(){
+  if(KA.w)return;
+  if(!('wakeLock' in navigator)){KA.wl='немає';log('Wake Lock: цей браузер його не підтримує');kaShow();return}
   try{
     const w=await navigator.wakeLock.request('screen');
-    if(!hold.active){w.release().catch(()=>{});return}   // відпустили, поки чекали дозвіл
-    hold.wl=w;w.addEventListener('release',()=>{if(hold.wl===w)hold.wl=null});
-  }catch(e){holdSt('⚠ Екран можуть вимкнути: система не дала утримати його ввімкненим ('+(e.name||'помилка')+')')}
+    if(!hold.active){w.release().catch(()=>{});return}   // відпустили, поки чекали
+    KA.w=w;KA.wl='✓';
+    w.addEventListener('release',()=>{
+      if(KA.w!==w)return;
+      KA.w=null;KA.wl='✗';
+      log('Wake Lock: систему зняла утримання'+(hold.active?' під час утримання кнопки':''));
+      kaShow();
+      if(hold.active&&!document.hidden&&KA.retry++<3)setTimeout(wlAcquire,300);
+    });
+  }catch(e){KA.wl='✗';log('Wake Lock: відмова ('+(e.name||'помилка')+': '+(e.message||'')+')')}
+  kaShow();
 }
-function wakeOff(){try{if(hold.wl)hold.wl.release()}catch(e){}hold.wl=null}
+function vidOn(){
+  try{
+    if(!KA.vid){
+      const v=document.createElement('video');
+      v.setAttribute('playsinline','');v.muted=true;v.defaultMuted=true;v.loop=true;
+      v.style.cssText='position:fixed;left:0;top:0;width:8px;height:8px;opacity:.01;pointer-events:none';
+      v.innerHTML='<source src="data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAALCEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggKs7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECfQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYgO/bqv1Tn5MpyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhAvrwgDgibCBQLqBQJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYgO/bqv1Tn5MmfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDIuMDAwMDAwMDAwAB9DtnVBB+eBAKOqgQAAgPACAJ0BKkAAQAAARwiFhYiFhIgCAgAGcDxCYAqyIPcwAP7/q1CAo5aBAMgA0QEAARAQABgAGFgv9AAIjoAAo5aBAZAA0QEAARAQABgAGFgv9AAIjoAAo5aBAlgA0QEAARAQABgAGFgv9AAIjoAAo5aBAyAA0QEAARAQABgAGFgv9AAIjoAAo5aBA+gA0QEAARAQABgAGFgv9AAIjoAAo5aBBLAA0QEAARAQABgAGFgv9AAIjoAAo5aBBXgA0QEAARAQFGAAYWC/0AAiOgAAo5aBBkAA0QEAARAQABgAGFgv9AAIjoAAo5aBBwgA0QEAARAQABgAGFgv9AAIjoAAHFO7a5G7j7OBALeK94EB8YIBn/CBAw==" type="video/webm"><source src="data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAANMbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAnZ0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAEAAAABAAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAAAAABAAAAAAHubWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAAUABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABmW1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAVlzdGJsAAAAuXN0c2QAAAAAAAAAAQAAAKlhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAEAAQABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAAL2F2Y0MBQsAK/+EAF2dCwArZBCbARAAAAwAEAAADACg8SJkgAQAFaMuDyyAAAAAQcGFzcAAAAAEAAAABAAAAFGJ0cnQAAAAAAAALqAAAC6gAAAAYc3R0cwAAAAAAAAABAAAACgAACAAAAAAUc3RzcwAAAAAAAAABAAAAAQAAABxzdHNjAAAAAAAAAAEAAAABAAAACgAAAAEAAAA8c3RzegAAAAAAAAAAAAAACgAAAo8AAAAKAAAACwAAAAoAAAAKAAAACgAAAAoAAAAKAAAACgAAAAoAAAAUc3RjbwAAAAAAAAABAAADfAAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAALybWRhdAAAAnAGBf//bNxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0zIGRlYmxvY2s9MTowOjAgYW5hbHlzZT0weDE6MHgxMTEgbWU9aGV4IHN1Ym1lPTcgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MSBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTAgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9LTIgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTUgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAAXZYiEBHyYoAA2IycnJ1111111111114AAAAAGQZo4CPhGAAAAB0GaVAI+EYAAAAAGQZpgEfCMAAAABkGagBHwjAAAAAZBmqAR8IwAAAAGQZrAEfCMAAAABkGa4BHwjAAAAAZBmwAQ8IwAAAAGQZsgP8Iw" type="video/mp4">';
+      v.addEventListener('pause',()=>{if(hold.active)v.play().catch(()=>{})});
+      document.body.appendChild(v);KA.vid=v;
+    }
+    const p=KA.vid.play();
+    if(p&&p.then)p.then(()=>{KA.v='✓';kaShow()}).catch(e=>{KA.v='✗';log('Відео-утримання екрана: відмова ('+(e.name||'помилка')+')');kaShow()});
+  }catch(e){KA.v='✗';log('Відео-утримання екрана: '+e.message)}
+}
+function kaOn(){KA.retry=0;KA.wl=KA.w?'✓':'';KA.v='';wlAcquire();vidOn();kaShow()}
+function kaOff(){
+  try{if(KA.w)KA.w.release()}catch(e){}
+  KA.w=null;KA.wl='';
+  try{if(KA.vid)KA.vid.pause()}catch(e){}
+  KA.v='';
+}
 function holdBtn(cls,txt){const b=$('#bHold');b.classList.toggle('on',cls==='on');b.classList.toggle('rdy',cls==='rdy');b.textContent=txt}
-function holdIdle(){clearInterval(hold.ui);clearTimeout(hold.tail);hold.tail=0;holdBtn('','🎤 Тримай і співай');wakeOff()}
+function holdIdle(){clearInterval(hold.ui);clearTimeout(hold.tail);hold.tail=0;holdBtn('','🎤 Тримай і співай');kaOff()}
 // Завершити сеанс: дослухати відкрите коліно і зупинити
 function holdFinish(force){
   clearTimeout(hold.tail);hold.tail=0;clearInterval(hold.ui);
@@ -565,7 +598,7 @@ async function holdStart(e){
   if(liveStream)liveStop();                               // якщо працювало старе «● Слухати», забираємо мікрофон собі
   hold.active=true;const my=++hold.seq;
   holdSt('');holdBtn('on','🎤 Готуюсь… тримай');
-  wakeOn();
+  kaOn();
   const cancelled=()=>!hold.active||hold.seq!==my;
   // Перший раз браузер питає дозвіл: діалог перериває утримання, тож просимо дозвіл окремо
   let perm='';try{perm=(await navigator.permissions.query({name:'microphone'})).state}catch(x){}
@@ -603,7 +636,7 @@ async function holdStart(e){
   // Повернення на вкладку: утримання екрана знімається системою, коли вкладка прихована
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden){if(hold.active||hold.tail){hold.active=false;hold.seq++;holdFinish()}}
-    else if(hold.active&&!hold.wl)wakeOn();
+    else if(hold.active){kaOn()}
   });
   // Перший дотик на сторінці розблоковує аудіо (правило автозапуску)
   document.addEventListener('pointerup',()=>{if(ctx&&ctx.state!=='running')ctx.resume().catch(()=>{})},true);
@@ -616,16 +649,18 @@ async function holdStart(e){
 // рядки крутяться по колу: весь розпізнаний текст пробігає знову й знову, між повторами розділювач.
 const TK={text:'',mon:'',cw:9.6,CH:31,loop:false,raf:0,idle:0,speed:45,sep:'   ~   '};
 const TK_IDLE=12000;
-const tkMonHtml=m=>m.replace(/\?/g,'<span class="q">?</span>');
+const tkEsc=c=>c==='&'?'&amp;':c==='<'?'&lt;':c===' '?'&nbsp;':c;
+const tkCells=(t,mon)=>{let h='';for(const c of t)h+=(mon&&c==='?'?'<i class="q">':'<i>')+tkEsc(c)+'</i>';return h};
 function tkMeasure(){
   const s=document.createElement('span');s.className='tk';s.style.cssText='position:absolute;visibility:hidden;width:auto;display:inline-block;max-width:none;border:0';
   s.textContent='Ш'.repeat(20);document.body.appendChild(s);
   const w=s.getBoundingClientRect().width/20;s.remove();
   if(w>0){TK.cw=w;TK.CH=Math.max(1,Math.floor(300/w))}
+  document.documentElement.style.setProperty('--cw',TK.cw+'px');
   $('#tkInfo').textContent='У вікні 300 px вміщується '+TK.CH+' символів';
 }
 function tkRender(slide){
-  $('#tkTi').textContent=TK.text;$('#tkMi').innerHTML=tkMonHtml(TK.mon);
+  $('#tkTi').innerHTML=tkCells(TK.text,false);$('#tkMi').innerHTML=tkCells(TK.mon,true);
   if(!slide)return;
   for(const id of ['#tkTi','#tkMi']){
     const e=$(id);e.style.transition='none';e.style.transform='translateX('+TK.cw+'px)';
@@ -637,17 +672,21 @@ function tkLoopStop(keep){
   for(const id of ['#tkTi','#tkMi']){const e=$(id);e.parentNode.style.justifyContent='flex-end';e.style.transition='none';e.style.transform='translateX(0)'}
   if(!keep)tkRender(false);
 }
+// Положення рядка в циклі: s = скільки пікселів «пройшло»; x = де лівий край тексту відносно лівого краю вікна.
+// Текст повністю виїжджає за лівий край (x = −Wt) і відразу з'являється з-за правого (x = Wc), далі по колу.
+const tkPos=(s,Wc,Wt)=>Wc-(((s%(Wc+Wt))+(Wc+Wt))%(Wc+Wt));
 function tkLoopStart(){
   if(!TK.text)return;
-  tkMeasure();tkLoopStop(true);
-  const unit=TK.text+TK.sep,monUnit=TK.mon+' '.repeat(TK.sep.length),W=unit.length*TK.cw,k=Math.ceil(300/W)+2;
+  tkMeasure();tkLoopStop(true);tkRender(false);
+  const n=[...TK.text].length,Wt=n*TK.cw,Wc=$('#tkT').clientWidth||300;
+  // Починаємо звідти, де рядок стояв (притиснутий праворуч), щоб не було стрибка
+  const s0=Wt;
   $('#tkTi').parentNode.style.justifyContent='flex-start';$('#tkMi').parentNode.style.justifyContent='flex-start';
-  $('#tkTi').textContent=unit.repeat(k);$('#tkMi').innerHTML=tkMonHtml(monUnit.repeat(k));
   TK.loop=true;const t0=performance.now();
   const step=now=>{
     if(!TK.loop)return;
-    const pos=((now-t0)/1000*TK.speed)%W;
-    $('#tkTi').style.transform='translateX('+(-pos)+'px)';$('#tkMi').style.transform='translateX('+(-pos)+'px)';
+    const x=tkPos(s0+(now-t0)/1000*TK.speed,Wc,Wt)+'px';
+    $('#tkTi').style.transform='translateX('+x+')';$('#tkMi').style.transform='translateX('+x+')';
     TK.raf=requestAnimationFrame(step);
   };
   TK.raf=requestAnimationFrame(step);
