@@ -69,14 +69,14 @@ const log=t=>{const l=$('#log');l.value+=t+'\n';if(l.value.length>60000)l.value=
 // Розкладка: символ → номер коліна у вихідному записі (порядок за часом)
 const MAP={' ':5,'о':35,'а':19,'н':3,'і':23,'в':11,'и':29,'т':42,'р':13,'е':4,'с':24,'к':41,'л':33,'д':45,'у':15,'м':28,'п':2,'я':9,'з':34,'ь':1,'б':12,'г':46,'й':27,'ч':40,'х':26,'ж':30,'ц':31,'ш':39,'ю':36,'є':10,'ї':22,'щ':8,'ф':38,"'":14,'ґ':18};
 const SYMS=Object.keys(MAP);
-const M=24,NFFT=1024,HOPS=.02,FMIN=600,FMAX=10000,TRIM_DB=35,FLOOR_DB=50,BAND=.25,HOP=.005,WIN=.01,NOISE_DB=12,LOW_CONF=2,PAD=.1;
+const M=24,NFFT=1024,HOPS=.02,FMIN=600,FMAX=10000,TRIM_DB=35,FLOOR_DB=50,BAND=.25,HOP=.005,WIN=.01,NOISE_DB=12,LOW_CONF=2,REJECT_RATIO=1.4,PAD=.1;
 let ctx=null,bank=null,lib=null,sig=null,src=null,rec=[],clock=null,raf=0,hl=-1,gainNode=null;
 const PRM={gap:1200,depth:35,hp:800,side:2000,tgt:-15,pmax:.5,boost:12};   // параметри нарізки, розкодування й вирівнювання
 const P=()=>PRM;
 const ac=()=>ctx=ctx||(()=>{const A=window.AudioContext||window.webkitAudioContext;try{return new A({latencyHint:'playback',sampleRate:48000})}catch(e){return new A({latencyHint:'playback'})}})();
 const mono=b=>{const x=new Float32Array(b.length);for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c);for(let i=0;i<b.length;i++)x[i]+=d[i]/b.numberOfChannels}return x};
-const pad=i=>String(i).padStart(2,'0');
 const sy=c=>c===' '?'␣':c;
+const pad=i=>String(i).padStart(2,'0');   // двозначний номер для журналу й фішок (без нього кодування падає з помилкою «pad is not defined»)
 const rt=r=>isFinite(r)?r.toFixed(2):'∞';
 const b64=u=>{let s='';for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};
 const ub64=s=>{const t=atob(s),u=new Uint8Array(t.length);for(let i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u};
@@ -389,8 +389,8 @@ function matchKnee(x,sr){
   for(let j=1;j<8;j++){const f=features(x.subarray(j*Math.round(sr*.0025)),sr);if(f)fs.push(f)}
   for(const q of ds.slice(0,4))for(const f of fs){const d=dtw(f,lib[q[1]].ft);if(d<q[0])q[0]=d}
   ds.sort((a,b)=>a[0]-b[0]);
-  if(ds[0][0]>=1e5)return{sym:'?',second:'',ratio:0};
-  return{sym:ds[0][1],second:ds[1][1],ratio:ds[1][0]/ds[0][0]};
+  if(ds[0][0]>=1e5)return{sym:'?',second:'',ratio:0,dist:Infinity};
+  return{sym:ds[0][1],second:ds[1][1],ratio:ds[1][0]/ds[0][0],dist:ds[0][0]};
 }
 
 // Початок сеансу: чистий стан, фільтр, найкоротше коліно бібліотеки
@@ -462,8 +462,11 @@ function liveClose(k){
   for(let j=0;j<x.length;j++)x[j]=L.raw[(a+j)%L.cap];
   const r=matchKnee(x,L.sr);
   if(!r){log('   (коліно закоротке для розпізнавання)');return}
+  // Запас близько 1 означає: найкращий і другий шаблони однаково погані, тобто це не коліно, а шум,
+  // мова чи шарудіння. Такі ділянки не дописуємо в текст (у вашому журналі шум давав 1.0–1.1, справжні коліна від ~1.6 і вище).
+  if(r.sym==='?'||r.ratio<REJECT_RATIO){log(`   (відкинуто: не схоже на жодне коліно · запас ${rt(r.ratio)} · ${dur.toFixed(2)} с)`);return}
   L.text+=r.sym;$('#live').value=L.text;tkPush(r.sym,r.ratio);
-  log(`Живе: ${sy(r.sym)} | запас ${rt(r.ratio)}${r.ratio<LOW_CONF?' ⚠ СУМНІВНО':''} | другий варіант ${sy(r.second)} | коліно ${dur.toFixed(2)} с`);
+  log(`Живе: ${sy(r.sym)} | запас ${rt(r.ratio)}${r.ratio<LOW_CONF?' ⚠ СУМНІВНО':''} | другий варіант ${sy(r.second)} | коліно ${dur.toFixed(2)} с | відстань ${r.dist.toFixed(2)}`);
 }
 
 // Рядок стану: рівень, поріг і що відбувається зараз
