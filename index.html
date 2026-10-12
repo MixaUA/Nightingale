@@ -72,6 +72,7 @@ const MAP={' ':5,'о':35,'а':19,'н':3,'і':23,'в':11,'и':29,'т':42,'р':13,
 const SYMS=Object.keys(MAP);
 const M=24,NFFT=1024,HOPS=.02,FMIN=1000,FMAX=10000,TRIM_DB=35,FLOOR_DB=50,BAND=.25,HOP=.005,WIN=.01,NOISE_DB=12,LOW_CONF=2,REJECT_RATIO=1.4,PAD=.1;
 let ctx=null,bank=null,lib=null,sig=null,src=null,rec=[],clock=null,raf=0,hl=-1,gainNode=null;
+const DUR_MAX=1.7;   // найбільше відношення тривалості живого коліна до шаблону
 const PRM={gap:1200,depth:35,hp:1000,side:2000,tgt:-15,pmax:.5,boost:12};   // параметри нарізки, розкодування й вирівнювання
 const P=()=>PRM;
 const ac=()=>ctx=ctx||(()=>{const A=window.AudioContext||window.webkitAudioContext;try{return new A({latencyHint:'playback',sampleRate:48000})}catch(e){return new A({latencyHint:'playback'})}})();
@@ -472,8 +473,12 @@ function liveClose(k){
   // Запас близько 1 означає: найкращий і другий шаблони однаково погані, тобто це не коліно, а шум,
   // мова чи шарудіння. Такі ділянки не дописуємо в текст (у вашому журналі шум давав 1.0–1.1, справжні коліна від ~1.6 і вище).
   if(r.sym==='?'||r.ratio<REJECT_RATIO){log(`   (відкинуто: не схоже на жодне коліно · запас ${rt(r.ratio)} · ${dur.toFixed(2)} с)`);return}
+  // Тривалість живого коліна має збігатися з тривалістю шаблону (у ваших журналах для правильних збігів 0.93–1.30,
+  // для злипання двох звуків 1.87): надто довге коліно відкидаємо як склеєне з чимось стороннім
+  const dr=(dur+2*PAD)/(lib[r.sym].ft.n*HOPS);
+  if(dr>DUR_MAX){log(`   (відкинуто: коліно ${dur.toFixed(2)} с у ${dr.toFixed(2)} раза довше за шаблон «${sy(r.sym)}», схоже на злипання звуків)`);return}
   L.text+=r.sym;$('#live').value=L.text;tkPush(r.sym,r.ratio);
-  log(`Живе: ${sy(r.sym)} | запас ${rt(r.ratio)}${r.ratio<LOW_CONF?' ⚠ СУМНІВНО':''} | другий варіант ${sy(r.second)} | коліно ${dur.toFixed(2)} с | відстань ${r.dist.toFixed(2)}`);
+  log(`Живе: ${sy(r.sym)} | запас ${rt(r.ratio)}${r.ratio<LOW_CONF?' ⚠ СУМНІВНО':''} | другий варіант ${sy(r.second)} | коліно ${dur.toFixed(2)} с (×${dr.toFixed(2)} шаблону) | відстань ${r.dist.toFixed(2)}`);
 }
 
 // Рядок стану: рівень, поріг і що відбувається зараз
