@@ -70,6 +70,7 @@ const log=t=>{const l=$('#log');l.value+=t+'\n';if(l.value.length>60000)l.value=
 // Розкладка: символ → номер коліна у вихідному записі (порядок за часом)
 const MAP={' ':5,'о':35,'а':19,'н':3,'і':23,'в':11,'и':29,'т':42,'р':13,'е':4,'с':24,'к':41,'л':33,'д':45,'у':15,'м':28,'п':2,'я':9,'з':34,'ь':1,'б':12,'г':46,'й':27,'ч':40,'х':26,'ж':30,'ц':31,'ш':39,'ю':36,'є':10,'ї':22,'щ':8,'ф':38,"'":14,'ґ':18};
 const SYMS=Object.keys(MAP);
+const SEP='~';   // роздільник кінця тексту при зациклюванні: необов'язковий, береться з партитури, якщо там є коліно з ключем «~»
 const M=24,NFFT=1024,HOPS=.02,FMIN=1000,FMAX=10000,TRIM_DB=35,FLOOR_DB=50,BAND=.25,HOP=.005,WIN=.01,NOISE_DB=12,LOW_CONF=2,REJECT_RATIO=1.4,PAD=.1;
 let ctx=null,bank=null,lib=null,sig=null,src=null,rec=[],clock=null,raf=0,hl=-1,gainNode=null;
 const DUR_MAX=1.7;   // найбільше відношення тривалості живого коліна до шаблону
@@ -252,10 +253,11 @@ function renderChips(){
   hl=-1;
 }
 $('#bEnc').onclick=()=>{
-  const t=$('#txt').value.toLowerCase().replace(/[ʼ’‘`´]/g,"'").replace(/\s+/g,' '),syms=[],skip=new Set();
+  const t=$('#txt').value.toLowerCase().replace(/[ʼ’‘`´]/g,"'").replace(/[∼～˜]/g,SEP).replace(/\s+/g,' '),syms=[],skip=new Set();
   for(const ch of t){if(lib[ch])syms.push(ch);else skip.add(ch)}
   if(skip.size)log(`Пропущено символи поза абеткою: ${Array.from(skip).map(c=>JSON.stringify(c)).join(' ')}`);
   if(!syms.length){log('Нема що кодувати');return}
+  if(lib[SEP]&&syms[syms.length-1]!==SEP){syms.push(SEP);log(`Додано роздільник «${SEP}» у кінець тексту`)}
   const a=assemble(syms);sig=a.y;rec=a.r;
   log(`\n-- Кодування: «${syms.join('')}» --\nЗакодовано ${syms.length} символів, ${(sig.length/ctx.sampleRate).toFixed(1)} с`);
   rec.forEach((it,i)=>log(`${pad(i+1)} | ${sy(it.sym)} | коліно #${lib[it.sym].idx} | ${it.t0.toFixed(2)}–${it.t1.toFixed(2)} с`));
@@ -594,7 +596,7 @@ document.addEventListener('pointerup',()=>{if(ctx&&ctx.state!=='running'&&ctx.st
 // Нижче такий самий рядок: «+» під символом, який розпізнано впевнено, «?» під сумнівним (запас менший за поріг)
 // або нерозпізнаним. Коли нових символів немає ~12 с, після зупинки мікрофона і після розкодування файлу
 // рядки крутяться по колу: весь розпізнаний текст пробігає знову й знову, між повторами розділювач.
-const TK={text:'',mon:'',cw:9.6,CH:31,loop:false,raf:0,idle:0,speed:45,sep:'   ~   '};
+const TK={text:'',mon:'',cw:9.6,CH:31,loop:false,raf:0,idle:0,speed:45,sep:'   ~   ',tail:''};
 const TK_IDLE=12000;
 const tkEsc=c=>c==='&'?'&amp;':c==='<'?'&lt;':c===' '?'&nbsp;':c;
 const tkCells=(t,mon)=>{let h='';for(const c of t)h+=(mon&&c==='?'?'<i class="q">':'<i>')+tkEsc(c)+'</i>';return h};
@@ -607,7 +609,7 @@ function tkMeasure(){
   $('#tkInfo').textContent='У вікні 300 px вміщується '+TK.CH+' символів';
 }
 function tkRender(slide){
-  $('#tkTi').innerHTML=tkCells(TK.text,false);$('#tkMi').innerHTML=tkCells(TK.mon,true);
+  $('#tkTi').innerHTML=tkCells(TK.text+TK.tail,false);$('#tkMi').innerHTML=tkCells(TK.mon+' '.repeat(TK.tail.length),true);
   if(!slide)return;
   for(const id of ['#tkTi','#tkMi']){
     const e=$(id);e.style.transition='none';e.style.transform='translateX('+TK.cw+'px)';
@@ -615,7 +617,7 @@ function tkRender(slide){
   }
 }
 function tkLoopStop(keep){
-  TK.loop=false;cancelAnimationFrame(TK.raf);
+  TK.loop=false;TK.tail='';cancelAnimationFrame(TK.raf);
   for(const id of ['#tkTi','#tkMi']){const e=$(id);e.parentNode.style.justifyContent='flex-end';e.style.transition='none';e.style.transform='translateX(0)'}
   if(!keep)tkRender(false);
 }
@@ -624,8 +626,11 @@ function tkLoopStop(keep){
 const tkPos=(s,Wc,Wt)=>Wc-(((s%(Wc+Wt))+(Wc+Wt))%(Wc+Wt));
 function tkLoopStart(){
   if(!TK.text)return;
-  tkMeasure();tkLoopStop(true);tkRender(false);
-  const n=[...TK.text].length,Wt=n*TK.cw,Wc=$('#tkT').clientWidth||300;
+  tkMeasure();tkLoopStop(true);
+  // Між кінцем тексту і його повтором показуємо «~» (якщо розпізнаний текст сам не закінчується на нього)
+  TK.tail=TK.text.endsWith(SEP)?' ':' '+SEP+' ';
+  tkRender(false);
+  const n=[...TK.text+TK.tail].length,Wt=n*TK.cw,Wc=$('#tkT').clientWidth||300;
   // Починаємо звідти, де рядок стояв (притиснутий праворуч), щоб не було стрибка
   const s0=Wt;
   $('#tkTi').parentNode.style.justifyContent='flex-start';$('#tkMi').parentNode.style.justifyContent='flex-start';
@@ -664,6 +669,10 @@ async function buildFromScore(o,name){
   log(`\n-- Бібліотека з партитури: ${name} --`);
   if(o.sr!==sr){const m=`Партитура для ${o.sr} Гц, а цей пристрій дає ${sr} Гц`;log('ПОМИЛКА: '+m);setStatus(m,'err');return}
   const fx=o.fx,sc={fft:o.fft,hop:o.hop,maxAmp:o.maxAmp},L={};
+  // Роздільник «~» додається до абетки лише коли він є в партитурі; без нього все працює як раніше
+  {const i=SYMS.indexOf(SEP),has=!!(o.t&&o.t[SEP]);
+   if(has&&i<0)SYMS.push(SEP);else if(!has&&i>=0)SYMS.splice(i,1);
+   log(has?`Роздільник «${SEP}» знайдено в партитурі: додається в кінець закодованого тексту`:`Роздільника «${SEP}» у партитурі немає (додайте коліно з ключем «${SEP}», щоб він звучав у кінці тексту)`)}
   log(`Налаштування звуку з партитури: гучність ${fx.safePeak}, дзвінкість ${fx.brightGain}× від ${fx.brightHz} Гц, відлуння ${fx.roomMix} / ${fx.roomSec} с, приглушення ${fx.compThresh} / ${fx.compPower}`);
   for(let n=0;n<SYMS.length;n++){
     const s=SYMS[n],t=o.t&&o.t[s];
