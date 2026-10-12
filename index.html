@@ -11,11 +11,6 @@ h1{font-size:18px;margin:4px 0 8px}h2{font-size:14px;margin:0 0 8px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px}
 button{padding:8px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);font:inherit}
 button.p{background:var(--ac);color:#fff;border-color:var(--ac)}button:disabled{opacity:.4}
-#bar{position:relative;height:64px;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--bg);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:ew-resize}
-#bar.dis{opacity:.5}
-#barFill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ac)}
-#bar.lock #barFill{background:var(--ok)}#bar.pull #barFill{background:var(--er)}
-#barTxt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 16px/1.2 system-ui,sans-serif;color:var(--fg);text-shadow:0 0 4px var(--bg),0 0 8px var(--bg);pointer-events:none;text-align:center;padding:0 8px}
 .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}
 textarea{width:100%;box-sizing:border-box;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px;font:15px/1.4 system-ui,sans-serif;resize:none;overflow:auto}
 #txt,#out,#live{height:64px}#log{height:clamp(120px,30vh,220px);max-height:220px;font:12px/1.35 ui-monospace,monospace;white-space:pre-wrap}
@@ -54,9 +49,8 @@ details summary{cursor:pointer;color:var(--mu);font-size:13px}
 
 <div class="card">
 <h2>Живе розпізнавання: мікрофон → текст</h2>
-<div id="bar"><div id="barFill"></div><div id="barTxt">Бібліотека будується…</div></div>
-<div id="holdSt" style="font-size:13px;color:var(--mu);margin:6px 0;min-height:17px"></div>
 <div class="row"><button class="p" id="bLive" disabled>● Слухати</button><button id="bLiveStop" disabled>■ Стоп</button></div>
+<div id="holdSt" style="font-size:13px;color:var(--mu);margin:6px 0;min-height:17px"></div>
 <div id="liveSt" style="font-size:13px;color:var(--mu);margin:6px 0"></div>
 <div class="tk" id="tkT"><div class="tki" id="tkTi"></div></div>
 <div class="tk tkm" id="tkM"><div class="tki" id="tkMi"></div></div>
@@ -76,9 +70,9 @@ const log=t=>{const l=$('#log');l.value+=t+'\n';if(l.value.length>60000)l.value=
 // Розкладка: символ → номер коліна у вихідному записі (порядок за часом)
 const MAP={' ':5,'о':35,'а':19,'н':3,'і':23,'в':11,'и':29,'т':42,'р':13,'е':4,'с':24,'к':41,'л':33,'д':45,'у':15,'м':28,'п':2,'я':9,'з':34,'ь':1,'б':12,'г':46,'й':27,'ч':40,'х':26,'ж':30,'ц':31,'ш':39,'ю':36,'є':10,'ї':22,'щ':8,'ф':38,"'":14,'ґ':18};
 const SYMS=Object.keys(MAP);
-const M=24,NFFT=1024,HOPS=.02,FMIN=600,FMAX=10000,TRIM_DB=35,FLOOR_DB=50,BAND=.25,HOP=.005,WIN=.01,NOISE_DB=12,LOW_CONF=2,REJECT_RATIO=1.4,PAD=.1;
+const M=24,NFFT=1024,HOPS=.02,FMIN=1000,FMAX=10000,TRIM_DB=35,FLOOR_DB=50,BAND=.25,HOP=.005,WIN=.01,NOISE_DB=12,LOW_CONF=2,REJECT_RATIO=1.4,PAD=.1;
 let ctx=null,bank=null,lib=null,sig=null,src=null,rec=[],clock=null,raf=0,hl=-1,gainNode=null;
-const PRM={gap:1200,depth:35,hp:800,side:2000,tgt:-15,pmax:.5,boost:12};   // параметри нарізки, розкодування й вирівнювання
+const PRM={gap:1200,depth:35,hp:1000,side:2000,tgt:-15,pmax:.5,boost:12};   // параметри нарізки, розкодування й вирівнювання
 const P=()=>PRM;
 const ac=()=>ctx=ctx||(()=>{const A=window.AudioContext||window.webkitAudioContext;try{return new A({latencyHint:'playback',sampleRate:48000})}catch(e){return new A({latencyHint:'playback'})}})();
 const mono=b=>{const x=new Float32Array(b.length);for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c);for(let i=0;i<b.length;i++)x[i]+=d[i]/b.numberOfChannels}return x};
@@ -147,10 +141,14 @@ function envelope(x,sr){
   for(let i=0;i<n;i++){let s=0;const o=i*h;for(let j=0;j<w;j++){const v=x[o+j];s+=v*v}e[i]=10*Math.log10(s/w+1e-12)}
   return e;
 }
+const HP_Q=[0.5412,1.3066];   // добротності двох каскадів ФВЧ Баттерворта 4-го порядку: плоска смуга пропускання, 24 дБ на октаву
 async function hpf(x,sr,f){
   if(!(f>0))return x;
-  const oc=new OfflineAudioContext(1,x.length,sr),s=oc.createBufferSource(),fl=oc.createBiquadFilter(),b=oc.createBuffer(1,x.length,sr);
-  b.copyToChannel(x,0);s.buffer=b;fl.type='highpass';fl.frequency.value=f;s.connect(fl);fl.connect(oc.destination);s.start();
+  const oc=new OfflineAudioContext(1,x.length,sr),s=oc.createBufferSource(),b=oc.createBuffer(1,x.length,sr);
+  b.copyToChannel(x,0);s.buffer=b;
+  let node=s;
+  for(const q of HP_Q){const fl=oc.createBiquadFilter();fl.type='highpass';fl.frequency.value=f;fl.Q.value=20*Math.log10(q);node.connect(fl);node=fl}   // Q у дБ
+  node.connect(oc.destination);s.start();
   return (await oc.startRendering()).getChannelData(0);
 }
 async function findKnees(x,sr,p){
@@ -408,8 +406,10 @@ function liveReset(){
   // Фільтр верхніх частот (як у пошуку колін у файлі): прибирає низький гул перед підрахунком гучності
   let hp=null;
   if(p.hp>0){
-    const w0=2*Math.PI*p.hp/sr,Q=Math.pow(10,1/20),al=Math.sin(w0)/(2*Q),cs=Math.cos(w0),a0=1+al;
-    hp={b0:(1+cs)/2/a0,b1:-(1+cs)/a0,b2:(1+cs)/2/a0,a1:-2*cs/a0,a2:(1-al)/a0,x1:0,x2:0,y1:0,y2:0};
+    hp=HP_Q.map(Q=>{
+      const w0=2*Math.PI*p.hp/sr,al=Math.sin(w0)/(2*Q),cs=Math.cos(w0),a0=1+al;
+      return{b0:(1+cs)/2/a0,b1:-(1+cs)/a0,b2:(1+cs)/2/a0,a1:-2*cs/a0,a2:(1-al)/a0,x1:0,x2:0,y1:0,y2:0};
+    });
   }
   LV={sr,p,cap,h:Math.round(HOP*sr),w:Math.round(WIN*sr),raw:new Float32Array(cap),flt:new Float32Array(cap),n:0,hp,
       E:[],eBase:0,nextHop:0,thr:null,kn:null,quiet:0,minDur:Math.max(.3,.5*minK),text:'',level:-120};
@@ -419,9 +419,9 @@ function liveReset(){
 function liveFeed(c){
   const L=LV;if(!L)return;
   for(let i=0;i<c.length;i++){
-    const x=c[i],k=L.n%L.cap,f=L.hp;let y=x;
+    const x=c[i],k=L.n%L.cap;let y=x;
     L.raw[k]=x;
-    if(f){y=f.b0*x+f.b1*f.x1+f.b2*f.x2-f.a1*f.y1-f.a2*f.y2;f.x2=f.x1;f.x1=x;f.y2=f.y1;f.y1=y}
+    if(L.hp)for(const f of L.hp){const u=y;y=f.b0*u+f.b1*f.x1+f.b2*f.x2-f.a1*f.y1-f.a2*f.y2;f.x2=f.x1;f.x1=u;f.y2=f.y1;f.y1=y}
     L.flt[k]=y;L.n++;
   }
   // Нові кроки огинаючої: гучність у дБ у вікні 10 мс з кроком 5 мс
@@ -492,7 +492,7 @@ async function liveStart(){
     // Вимикаємо «покращення» мікрофона: вони вирізають стабільні тони, тобто саме наш спів
     try{liveStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
     catch(e){log('ПОМИЛКА: немає доступу до мікрофона');return false}
-    liveReset();$('#live').value='';tkClear();
+    liveReset();$('#live').value='';tkClear();wlAcquire();
     liveSrc=ctx.createMediaStreamSource(liveStream);
     try{
       // Модуль реєструємо один раз на AudioContext: повторне додавання падало б і мовчки вмикало запасний шлях
@@ -513,6 +513,9 @@ async function liveStart(){
   }finally{liveBusy=false}
 }
 function liveStop(){
+  // Відкрите коліно (звук ще йшов у момент зупинки) дорозпізнаємо, а не губимо
+  if(liveStream&&LV&&LV.kn){const k=LV.kn;LV.kn=null;LV.quiet=0;try{liveClose(k)}catch(e){}}
+  wlRelease();
   clearInterval(liveTimer);
   try{if(liveNode){liveNode.disconnect();liveNode.port.onmessage=null}if(liveSp){liveSp.disconnect();liveSp.onaudioprocess=null}if(liveSrc)liveSrc.disconnect()}catch(e){}
   if(liveStream)liveStream.getTracks().forEach(t=>t.stop());
@@ -524,120 +527,62 @@ function liveStop(){
 $('#bLive').onclick=()=>{liveStart()};
 $('#bLiveStop').onclick=liveStop;
 
-// ===== Смуга «підтягуй, щоб слухати» =====
-// Смуга худне за BAR.sec секунд, поки вона не порожня, запис іде. Підтягнути її можна лише рухом пальця вправо і лише коли
-// лишилось не більше BAR.lock смуги: дотягнута до краю, вона не реагує, доки не дійде до половини. Нерухомий палець
-// подій не створює, тому «потримати» нічого не дає: до екрана доводиться торкатись рухом щонайменше раз на BAR.sec секунд,
-// а справжні дотики система рахує активністю користувача і не гасить екран. Wake Lock не використовуємо.
-const BAR={sec:10,lock:.5,intent:12};            // тривалість смуги (с), поріг блокування (частка), рух для початку (px)
-const bar={phase:'idle',level:0,seq:0,g:null,t:0,raf:0,tail:0};   // phase: idle | start | run | tail
-const holdSt=t=>{$('#holdSt').textContent=t};
-const barW=()=>$('#bar').clientWidth||300;
-function barDraw(){
-  const b=$('#bar'),on=bar.phase==='start'||bar.phase==='run',locked=on&&bar.level>BAR.lock;
-  $('#barFill').style.width=(bar.level*100).toFixed(1)+'%';
-  b.classList.toggle('lock',locked);b.classList.toggle('pull',on&&!locked);b.classList.toggle('dis',!lib);
-  let t;
-  if(!lib)t='Бібліотека будується…';
-  else if(bar.phase==='idle')t='Потягни вправо, щоб слухати';
-  else if(bar.phase==='tail')t='… дослуховую';
-  else t=((bar.phase==='start'||(LV&&LV.thr===null))?'калібрую · ':'')+(locked?'🔒 ':'→ потягни · ')+(bar.level*BAR.sec).toFixed(1)+' с';
-  $('#barTxt').textContent=t;
-}
-function barTick(now){
-  if(bar.phase==='idle'){bar.raf=0;barDraw();return}
-  bar.raf=requestAnimationFrame(barTick);
-  const dt=Math.min(.25,(now-bar.t)/1000);bar.t=now;
-  if(bar.phase==='run'&&!liveStream){barIdle();return}      // мікрофон зупинили кнопкою «■ Стоп»
-  if(bar.phase==='start'||bar.phase==='run'){
-    bar.level-=dt/BAR.sec;
-    if(bar.level<=0){bar.level=0;barExpire()}
-  }
-  barDraw();
-}
-function barKick(){bar.t=performance.now();if(!bar.raf)bar.raf=requestAnimationFrame(barTick)}
-function barIdle(){bar.seq++;bar.phase='idle';bar.level=0;bar.g=null;clearTimeout(bar.tail);bar.tail=0;barDraw()}
-// Завершити сеанс: закрити відкрите коліно (на таймауті), зупинити мікрофон
-function barFinish(){
-  clearTimeout(bar.tail);bar.tail=0;
-  if(liveStream&&LV&&LV.kn){const k=LV.kn;LV.kn=null;LV.quiet=0;liveClose(k)}
-  if(liveStream)liveStop();
-  barIdle();
-}
-// Смуга спорожніла: дослухати відкрите коліно (до паузи між колінами + 0.7 с) і зупинитись
-function barExpire(){
-  bar.g=null;
-  if(bar.phase==='start'){barIdle();return}                // мікрофон не встиг піднятися
-  if(bar.phase!=='run')return;
-  if(!liveStream){barIdle();return}
-  if(!LV||!LV.kn){barFinish();return}
-  bar.phase='tail';
-  const limit=LV.p.gap+700,t0=performance.now();
-  const poll=()=>{
-    if(bar.phase!=='tail')return;
-    if(!LV||!liveStream){barIdle();return}
-    if(!LV.kn||performance.now()-t0>limit){barFinish();return}
-    bar.tail=setTimeout(poll,100);
-  };
-  bar.tail=setTimeout(poll,100);
-}
-async function barBegin(acc){
-  if(bar.phase==='tail')barFinish();                        // новий сеанс під час «хвоста» старого
-  if(liveStream)liveStop();                                 // якщо працювало старе «● Слухати», мікрофон забираємо собі
-  const my=++bar.seq;
-  bar.phase='start';bar.level=Math.min(1,acc/barW());holdSt('');barKick();barDraw();
-  const dead=()=>bar.seq!==my;
-  // Перший раз браузер питає дозвіл: діалог перериває жест, тож просимо дозвіл окремо
-  let perm='';try{perm=(await navigator.permissions.query({name:'microphone'})).state}catch(x){}
-  if(dead())return;
-  if(perm==='prompt'||perm==='denied'){
-    barIdle();
-    if(perm==='denied'){holdSt('Мікрофон заблоковано в налаштуваннях сайту');return}
-    try{(await navigator.mediaDevices.getUserMedia({audio:true})).getTracks().forEach(t=>t.stop());holdSt('Дозвіл надано. Тепер потягни ще раз.')}
-    catch(x){holdSt('Немає дозволу на мікрофон')}
-    return;
-  }
-  // Аудіо запускається лише після дотику (правило браузера): якщо ще не запущене, розблоковуємо й просимо повторити
-  ac();
-  if(ctx.state!=='running')await Promise.race([ctx.resume().catch(()=>{}),new Promise(r=>setTimeout(r,500))]);
-  if(dead())return;
-  if(ctx.state!=='running'){barIdle();holdSt('Аудіо щойно розблоковано. Потягни ще раз.');return}
-  const ok=await liveStart();
-  if(dead()){if(ok&&liveStream)liveStop();return}           // смуга спорожніла, поки мікрофон піднімався
-  if(!ok){barIdle();return}
-  bar.phase='run';
-}
-{
-  const B=$('#bar');
-  B.addEventListener('pointerdown',e=>{
-    e.preventDefault();
-    if(!lib){holdSt('Бібліотека ще не готова');return}
-    const running=bar.phase==='start'||bar.phase==='run';
-    if(running&&bar.level>BAR.lock)return;                   // заблоковано, доки не дійде до половини
-    try{B.setPointerCapture(e.pointerId)}catch(x){}
-    bar.g={id:e.pointerId,x:e.clientX,acc:0};
-  });
-  B.addEventListener('pointermove',e=>{
-    const g=bar.g;if(!g||e.pointerId!==g.id)return;
-    const dx=e.clientX-g.x;g.x=e.clientX;
-    if(dx<=0)return;                                         // лише рух вправо
-    if(bar.phase==='idle'||bar.phase==='tail'){
-      g.acc+=dx;
-      if(g.acc>=BAR.intent)barBegin(g.acc);
-      return;
+// ===== Екран не гасне під час слухання =====
+// Спершу штатний Screen Wake Lock API (потрібен HTTPS: GitHub Pages підходить). Якщо його немає або браузер відмовив,
+// вмикаємо запасний шлях: майже невидиме беззвучне відео з canvas, яке система вважає відтворенням медіа.
+// Жодних дотиків до екрана не потрібно, тож вони більше не псують розпізнавання.
+const WL={lock:null,vid:null,cv:null,tick:0,want:false};
+const holdSt=t=>{const h=$('#holdSt');if(h)h.textContent=t};
+function wlVideoStart(){
+  try{
+    if(!WL.vid){
+      const c=document.createElement('canvas');c.width=c.height=32;
+      if(!c.captureStream)return false;
+      const v=document.createElement('video');
+      v.muted=true;v.defaultMuted=true;v.loop=true;v.autoplay=true;
+      v.setAttribute('muted','');v.setAttribute('playsinline','');v.setAttribute('webkit-playsinline','');
+      v.style.cssText='position:fixed;right:0;bottom:0;width:2px;height:2px;opacity:.02;pointer-events:none;z-index:-1';
+      v.srcObject=c.captureStream(4);
+      document.body.appendChild(v);
+      WL.vid=v;WL.cv=c;
     }
-    bar.level=Math.min(1,bar.level+dx/barW());               // смуга росте на відстань руху пальця, а не на «куди торкнувся»
-    if(bar.level>=1)bar.g=null;                              // дотягнули до краю: далі не реагує
-    barDraw();
-  });
-  const up=e=>{if(bar.g&&e.pointerId===bar.g.id)bar.g=null};
-  for(const t of ['pointerup','pointercancel','lostpointercapture'])B.addEventListener(t,up);
-  B.addEventListener('contextmenu',e=>e.preventDefault());
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&bar.phase!=='idle'){bar.g=null;barFinish()}});
-  // Перший дотик на сторінці розблоковує аудіо (правило автозапуску)
-  document.addEventListener('pointerup',()=>{if(ctx&&ctx.state!=='running')ctx.resume().catch(()=>{})},true);
-  barDraw();
+    const g=WL.cv.getContext('2d');let f=0;
+    clearInterval(WL.tick);
+    // Кадр має змінюватись, інакше потік «завмирає» і система може вважати відео неактивним
+    WL.tick=setInterval(()=>{f^=1;g.fillStyle=f?'#000':'#020202';g.fillRect(0,0,32,32)},250);
+    const p=WL.vid.play();if(p&&p.catch)p.catch(()=>{});
+    return true;
+  }catch(e){return false}
 }
+function wlVideoStop(){clearInterval(WL.tick);WL.tick=0;if(WL.vid){try{WL.vid.pause()}catch(e){}}}
+async function wlAcquire(){
+  WL.want=true;
+  if(WL.lock&&!WL.lock.released)return true;
+  if('wakeLock' in navigator&&navigator.wakeLock&&navigator.wakeLock.request){
+    try{
+      const l=await navigator.wakeLock.request('screen');
+      if(!WL.want){try{l.release()}catch(e){}return false}    // слухання вже зупинили, поки чекали
+      WL.lock=l;wlVideoStop();
+      // Система знімає блокування сама, коли вкладка ховається: після повернення візьмемо знову (visibilitychange)
+      holdSt('Екран не гасне (Wake Lock)');return true;
+    }catch(e){}
+  }
+  if(wlVideoStart()){holdSt('Екран не гасне (запасний режим)');return true}
+  holdSt('Не вдалося заборонити вимкнення екрана: збільшіть час автовимкнення в налаштуваннях телефона');return false;
+}
+function wlRelease(){
+  WL.want=false;
+  try{if(WL.lock)WL.lock.release()}catch(e){}
+  WL.lock=null;wlVideoStop();holdSt('');
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)return;
+  if(ctx&&ctx.state!=='running'&&ctx.state!=='closed')ctx.resume().catch(()=>{});
+  if(liveStream&&liveStream.getAudioTracks().every(t=>t.readyState==='ended')){liveStop();return}   // система забрала мікрофон у фоні
+  if(WL.want)wlAcquire();
+});
+// Перший дотик на сторінці розблоковує аудіо (правило автозапуску)
+document.addEventListener('pointerup',()=>{if(ctx&&ctx.state!=='running'&&ctx.state!=='closed')ctx.resume().catch(()=>{})},true);
 
 // ===== Радіограма: бігучий рядок розпізнаного тексту і паралельний рядок моніторингу =====
 // Рядок 300 px моноширинним шрифтом: новий символ додається праворуч і зсуває старі ліворуч за межу вікна.
@@ -696,11 +641,10 @@ function tkPush(sym,ratio){
   tkRender(true);
   clearTimeout(TK.idle);TK.idle=setTimeout(tkIdle,TK_IDLE);
 }
-// Немає нових символів ~12 с: бігучий рядок крутиться, а старе «● Слухати» вимикає мікрофон.
-// Під час утримання нової кнопки мікрофон не чіпаємо: його вимкне відпускання.
+// Немає нових символів ~12 с і мікрофон вимкнено: бігучий рядок крутиться. Поки мікрофон слухає, рядок не чіпаємо.
 function tkIdle(){
-  if(bar.phase!=='idle')return;
-  if(liveStream)liveStop();else tkLoopStart();
+  if(liveStream)return;           // мікрофон слухає далі, його зупиняє лише кнопка «■ Стоп»
+  tkLoopStart();
 }
 $('#tkLoop').onclick=()=>{tkLoopStart()};
 $('#tkStop').onclick=()=>{clearTimeout(TK.idle);tkLoopStop(false)};
@@ -711,7 +655,7 @@ const SCORE_URL='solovey-score.json';
 function setStatus(t,cls){const e=$('#libSt');e.textContent=t;e.className=cls||''}
 async function buildFromScore(o,name){
   ac();const sr=ctx.sampleRate,p=P();bank=buildBank(sr);lib=null;
-  ['bEnc','bDec','bLive'].forEach(i=>$('#'+i).disabled=true);barDraw();
+  ['bEnc','bDec','bLive'].forEach(i=>$('#'+i).disabled=true);
   log(`\n-- Бібліотека з партитури: ${name} --`);
   if(o.sr!==sr){const m=`Партитура для ${o.sr} Гц, а цей пристрій дає ${sr} Гц`;log('ПОМИЛКА: '+m);setStatus(m,'err');return}
   const fx=o.fx,sc={fft:o.fft,hop:o.hop,maxAmp:o.maxAmp},L={};
@@ -742,7 +686,7 @@ async function buildFromScore(o,name){
   lib=L;
   log(`Бібліотека готова: ${SYMS.length} символів`);
   setStatus(`Бібліотека готова: ${SYMS.length} символів`,'ok');
-  $('#bEnc').disabled=false;$('#bLive').disabled=false;barDraw();$('#bDec').disabled=!$('#fd').files.length;
+  $('#bEnc').disabled=false;$('#bLive').disabled=false;$('#bDec').disabled=!$('#fd').files.length;
 }
 async function loadScore(){
   setStatus('Завантажую партитуру…');
