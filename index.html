@@ -204,7 +204,7 @@ const ui = (function () {
 
   // --- текстовий рядок: коротке стоїть по центру, довге ходить по колу ---
   var box = els.res, run = document.getElementById('run'), sr = document.getElementById('srText');
-  var SEP = '\u2003•\u2003', SPEED = 45;           // розділювач між колами й швидкість, px/с
+  var DOT = '\u2003•\u2003', SPEED = 45;           // крапка з відступами (розділювач між колами) і швидкість, px/с
   var cur = '', unitW = 0, off = 0, mraf = 0, mlast = 0;
 
   function mStop() { cancelAnimationFrame(mraf); mraf = 0; }
@@ -216,13 +216,16 @@ const ui = (function () {
   }
   function showStatic() { mStop(); box.classList.remove('scroll'); run.style.transform = ''; }
   // keep=true: позицію не скидаємо (текст лише подовжився, або це «біжать» крапки)
-  function setText(t, keep) {
+  function setText(raw, keep) {
+    var t = raw.replace(/~/g, DOT);                // «~» (кінець речення) показуємо крапкою з тими самими відступами
     if (!keep && !(cur && t.indexOf(cur) === 0)) off = 0;
     cur = t;
     run.textContent = '';
-    var u = document.createElement('span'); u.textContent = t; run.appendChild(u);
+    var u = document.createElement('span');
+    u.textContent = t.replace(/^\u2003|\u2003$/g, ''); run.appendChild(u);   // по центру крайні відступи не потрібні
     if (u.getBoundingClientRect().width <= box.clientWidth - 28) { showStatic(); return; }   // вміщується
-    u.textContent = t + SEP;                       // два однакових «кола» підряд: шов непомітний
+    u.textContent = t.slice(-DOT.length) === DOT ? t : t + DOT;   // текст уже закінчується крапкою: вона й є розділювачем між колами
+    // два однакових «кола» підряд: шов непомітний
     run.appendChild(u.cloneNode(true));
     unitW = u.getBoundingClientRect().width;
     if (!(unitW > 0)) { showStatic(); return; }
@@ -263,7 +266,7 @@ const ui = (function () {
     // готовий текст (розпізнане, помилка, підказка); довгий ходить по колу
     say: function (t) {
       clearInterval(timer); timer = 0;
-      setText(t, false); sr.textContent = t;
+      setText(t, false); sr.textContent = t.replace(/\s*~\s*/g, '. ').trim();   // для зчитувачів екрана «~» це крапка
     },
 
     progress: function (f) {
