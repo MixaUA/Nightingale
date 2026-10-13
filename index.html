@@ -393,12 +393,14 @@ class Cap extends AudioWorkletProcessor{
 registerProcessor('cap',Cap);`;
 
 // Розпізнавання одного коліна (повторює файлове: фазовий пошук на 7 зсувів по 2.5 мс)
-function matchKnee(x,sr){
+function matchKnee(x,sr,fast){
   const ft=features(x,sr);if(!ft)return null;
   const ds=SYMS.map(c=>[dtw(ft,lib[c].ft),c]).sort((a,b)=>a[0]-b[0]);
-  const fs=[];
-  for(let j=1;j<8;j++){const f=features(x.subarray(j*Math.round(sr*.0025)),sr);if(f)fs.push(f)}
-  for(const q of ds.slice(0,4))for(const f of fs){const d=dtw(f,lib[q[1]].ft);if(d<q[0])q[0]=d}
+  if(!fast){   // fast: без перевірки зсувами старту (швидкий перебір кандидатів)
+    const fs=[];
+    for(let j=1;j<8;j++){const f=features(x.subarray(j*Math.round(sr*.0025)),sr);if(f)fs.push(f)}
+    for(const q of ds.slice(0,4))for(const f of fs){const d=dtw(f,lib[q[1]].ft);if(d<q[0])q[0]=d}
+  }
   ds.sort((a,b)=>a[0]-b[0]);
   if(ds[0][0]>=1e5)return{sym:'?',second:'',ratio:0,dist:Infinity};
   return{sym:ds[0][1],second:ds[1][1],ratio:ds[1][0]/ds[0][0],dist:ds[0][0]};
@@ -465,86 +467,106 @@ function liveStep(i){
   }
 }
 
-// Вирізає звук між кроками огинаючої a..b (з відступами) і розпізнає; повертає {r,dur,dr,why}
-function liveTry(a0,b0){
-  const L=LV,dur=(b0-a0+1)*HOP+WIN;
+// Вирізає звук між кроками огинаючої a0..b0 (з відступами) і розпізнає; повертає {r,dur,dr,why}. fast: швидкий режим для перебору
+function liveTry(L,a0,b0,fast){
+  const dur=(b0-a0+1)*HOP+WIN;
   const pad=Math.round(PAD*L.sr),ss=a0*L.h,se=Math.min(L.n,b0*L.h+L.w);
   const a=Math.max(0,ss-pad),z=Math.min(L.n,se+pad);
   if(a<L.n-L.cap)return{dur,why:'не вмістилось у пам\'ять'};
   const x=new Float32Array(z-a);
   for(let j=0;j<x.length;j++)x[j]=L.raw[(a+j)%L.cap];
-  const r=matchKnee(x,L.sr);
+  const r=matchKnee(x,L.sr,fast);
   if(!r)return{dur,why:'закоротке для розпізнавання'};
-  if(r.sym==='?'||r.ratio<REJECT_RATIO)return{r,dur,why:`не схоже на жодне коліно · запас ${rt(r.ratio)} · ${dur.toFixed(2)} с`};
+  if(r.sym==='?'||r.ratio<REJECT_RATIO)return{r,dur,why:`не схоже на жодне коліно · запас ${rt(r.ratio)} · відстань ${r.dist>1e5?'—':r.dist.toFixed(1)} · ${dur.toFixed(2)} с`};
   // Тривалість живого коліна має збігатися з тривалістю шаблону (для правильних збігів 0.93–1.30, для злипання 1.87)
   const dr=(dur+2*PAD)/(lib[r.sym].ft.n*HOPS);
   if(dr>DUR_MAX)return{r,dur,dr,why:`коліно ${dur.toFixed(2)} с у ${dr.toFixed(2)} раза довше за шаблон «${sy(r.sym)}», схоже на злипання звуків`};
   return{r,dur,dr,why:''};
 }
-function liveAccept(t){
-  const L=LV,{r,dur,dr}=t;
+function liveAccept(L,t){
+  const {r,dur,dr}=t;
   L.text+=r.sym;$('#live').value=L.text;tkPush(r.sym,r.ratio);
   log(`Живе: ${sy(r.sym)} | запас ${rt(r.ratio)}${r.ratio<LOW_CONF?' ⚠ СУМНІВНО':''} | другий варіант ${sy(r.second)} | коліно ${dur.toFixed(2)} с (×${dr.toFixed(2)} шаблону) | відстань ${r.dist.toFixed(2)}`);
 }
 
 // Рятування коліна із суміші зі сторонніми звуками. Подія закривається лише після паузи gap (1.2 с), тому шум, що почався
 // поруч, склеюється з коліном в один сегмент, який не схожий ні на що. Розбиваємо подію на спалахи (за паузами ≥ RESCUE_SPLIT мс),
-// перебираємо суміжні групи спалахів і беремо ту, що добре збігається з шаблоном; решту ліворуч і праворуч шукаємо так само.
-const RESCUE_SPLIT=250, RESCUE_RATIO=1.6, RESCUE_MAX_BURSTS=10, RESCUE_MAX_CALLS=45, RESCUE_LEVELS=[0,8,16];
-function liveRescue(k){
-  const L=LV;if(k.s-L.eBase<0)return false;
-  const sp=Math.round(RESCUE_SPLIT/1000/HOP);
+// перебираємо суміжні групи спалахів, найкращу групу перевіряємо повним розпізнаванням; решту ліворуч і праворуч шукаємо так само.
+// Кожну групу оцінюємо один раз (кеш), а між оцінками віддаємо керування, щоб сторінка й прийом звуку не зависали.
+const RESCUE_SPLIT=250, RESCUE_RATIO=1.6, RESCUE_MAX_BURSTS=10, RESCUE_MAX_CALLS=60, RESCUE_LEVELS=[0,8,16], RESCUE_SP_DIST=16;
+const yieldUi=()=>new Promise(r=>setTimeout(r,0));
+async function liveRescue(L,k){
+  if(k.s-L.eBase<0)return false;
+  const ev=L.E.slice(k.s-L.eBase,k.e-L.eBase+1),thr0=L.thr,sp=Math.round(RESCUE_SPLIT/1000/HOP);   // знімок огинаючої: масив може зсунутись, поки чекаємо
   let minT=Infinity,maxT=0;for(const c of SYMS){const t=lib[c].ft.n*HOPS;minT=Math.min(minT,t);maxT=Math.max(maxT,t)}
-  let calls=0;
-  // Спалахи вище підвищеного порога: чим вище поріг, тим глибше «долини» між звуками, що розділяють склеєні події
+  let calls=0,bestFail=null;const memo=new Map();
   const bursts=up=>{
-    const thr=L.thr+up;let bs=[],cur=null;
-    for(let i=k.s;i<=k.e;i++){
-      const e=L.E[i-L.eBase];if(e===undefined)break;
-      if(e>=thr){if(cur&&i-cur.e<=sp)cur.e=i;else{cur={s:i,e:i};bs.push(cur)}}
+    let bs=[],cur=null;
+    for(let q=0;q<ev.length;q++){
+      if(ev[q]>=thr0+up){const i=k.s+q;if(cur&&i-cur.e<=sp)cur.e=i;else{cur={s:i,e:i};bs.push(cur)}}
     }
-    bs=bs.filter(b=>(b.e-b.s+1)*HOP+WIN>=.08);                       // зовсім короткі спалахи (клацання) відкидаємо
+    bs=bs.filter(b=>(b.e-b.s+1)*HOP+WIN>=.08);                         // зовсім короткі спалахи (клацання) відкидаємо
     if(bs.length>RESCUE_MAX_BURSTS){const keep=new Set(bs.slice().sort((a,b)=>(b.e-b.s)-(a.e-a.s)).slice(0,RESCUE_MAX_BURSTS));bs=bs.filter(b=>keep.has(b))}
     return bs;
+  };
+  const evalG=async(a,b,full)=>{
+    const key=a+'-'+b+(full?'f':'');
+    if(memo.has(key))return memo.get(key);
+    if(!full){if(calls>=RESCUE_MAX_CALLS)return null;calls++}
+    await yieldUi();
+    const t=liveTry(L,a,b,!full);memo.set(key,t);
+    if(t.r&&t.r.sym!=='?'&&(!bestFail||t.r.ratio>bestFail.r.ratio))bestFail=t;
+    return t;
+  };
+  // Пробіл за природою має малий запас (його найближчий сусід «і»), тому для нього поріг запасу нижчий, але додано обмеження відстані
+  const okT=t=>{
+    if(!t||t.why||t.dr<.7)return false;
+    if(t.r.sym===' ')return t.r.ratio>=REJECT_RATIO&&t.r.dist<=RESCUE_SP_DIST;
+    return t.r.ratio>=RESCUE_RATIO;
   };
   for(const up of RESCUE_LEVELS){
     const bs=bursts(up);
     if(bs.length<1||(up===0&&bs.length<2))continue;                      // на нульовому рівні розбивати нічого
     const found=[];
-    const go=arr=>{
-      if(!arr.length||calls>=RESCUE_MAX_CALLS)return;
-      let best=null;
+    const go=async arr=>{
+      if(!arr.length)return;
+      const cands=[];
       for(let i=0;i<arr.length;i++)for(let j=i;j<arr.length;j++){
         if(up===0&&i===0&&j===arr.length-1&&arr===bs)continue;           // повну подію вже пробували
         const w=(arr[j].e-arr[i].s+1)*HOP+WIN+2*PAD;
         if(w<.75*minT||w>DUR_MAX*maxT)continue;                          // довжина неможлива для жодного шаблону
-        if(calls>=RESCUE_MAX_CALLS)break;
-        calls++;
-        const t=liveTry(arr[i].s,arr[j].e);
-        if(t.why||t.r.ratio<RESCUE_RATIO||t.dr<.7)continue;
-        if(!best||t.r.ratio>best.t.r.ratio)best={i,j,t,s:arr[i].s};
+        const t=await evalG(arr[i].s,arr[j].e,false);
+        if(t&&okT(t))cands.push({i,j,t});
       }
-      if(!best)return;
-      found.push({s:best.s,t:best.t});
-      go(arr.slice(0,best.i));go(arr.slice(best.j+1));
+      cands.sort((a,b)=>b.t.r.ratio-a.t.r.ratio);
+      for(const c of cands.slice(0,3)){
+        const f=await evalG(arr[c.i].s,arr[c.j].e,true);                 // підтвердження повним розпізнаванням
+        if(okT(f)){found.push({s:arr[c.i].s,t:f});await go(arr.slice(0,c.i));await go(arr.slice(c.j+1));return}
+      }
     };
-    go(bs);
+    await go(bs);
     if(found.length){
       found.sort((a,b)=>a.s-b.s);
-      for(const f of found){log(`   (врятовано з-поміж сторонніх звуків${up?`, поріг +${up} дБ`:''})`);liveAccept(f.t)}
+      for(const f of found){log(`   (врятовано з-поміж сторонніх звуків${up?`, поріг +${up} дБ`:''})`);liveAccept(L,f.t)}
       return true;
     }
   }
+  if(bestFail)log(`   (рятування не вдалось; найближчий кандидат «${sy(bestFail.r.sym)}» · запас ${rt(bestFail.r.ratio)} · відстань ${bestFail.r.dist.toFixed(1)} · ${bestFail.dur.toFixed(2)} с)`);
   return false;
 }
 
-// Коліно закінчилось: вирізаємо його звук і розпізнаємо
+// Коліно закінчилось: ставимо в чергу на розпізнавання. Черга зберігає порядок символів, навіть якщо рятування триває кілька секунд
+let liveQ=Promise.resolve();
 function liveClose(k){
-  const L=LV,dur=(k.e-k.s+1)*HOP+WIN;
+  const L=LV;
+  liveQ=liveQ.then(()=>liveJob(L,k)).catch(e=>log('ПОМИЛКА розпізнавання: '+(e&&e.message||e)));
+}
+async function liveJob(L,k){
+  const dur=(k.e-k.s+1)*HOP+WIN;
   if(dur<L.minDur){log(`   (пропущено короткий звук ${dur.toFixed(2)} с)`);return}
-  const t=liveTry(k.s,k.e);
-  if(!t.why){liveAccept(t);return}
-  if(liveRescue(k))return;
+  const t=liveTry(L,k.s,k.e,false);
+  if(!t.why){liveAccept(L,t);return}
+  if(await liveRescue(L,k))return;
   log(`   (відкинуто: ${t.why})`);
 }
 
@@ -572,8 +594,10 @@ async function liveStart(){
       liveNode=new AudioWorkletNode(ctx,'cap');
       liveNode.port.onmessage=e=>liveFeed(e.data);
       liveSrc.connect(liveNode);liveNode.connect(ctx.destination);
+      log('Захоплення звуку: AudioWorklet (звук не губиться, навіть коли сторінка зайнята)');
     }catch(e){
       // Запасний шлях для середовищ без AudioWorklet
+      log('Захоплення звуку: ScriptProcessor (запасний шлях: за завантаження сторінки звук може губитись)');
       liveSp=ctx.createScriptProcessor(2048,1,1);
       liveSp.onaudioprocess=ev=>liveFeed(ev.inputBuffer.getChannelData(0).slice());
       liveSrc.connect(liveSp);liveSp.connect(ctx.destination);
@@ -593,7 +617,7 @@ function liveStop(){
   if(liveStream)liveStream.getTracks().forEach(t=>t.stop());
   liveNode=liveSp=liveSrc=liveStream=null;
   $('#bLiveStop').disabled=true;$('#bLive').disabled=!lib;
-  log(`-- Живе розпізнавання зупинено. Текст: «${LV?LV.text:''}» --`);
+  const Ls=LV;liveQ=liveQ.then(()=>log(`-- Живе розпізнавання зупинено. Текст: «${Ls?Ls.text:''}» --`));
   clearTimeout(TK.idle);tkLoopStart();
 }
 $('#bLive').onclick=()=>{liveStart()};
