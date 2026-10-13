@@ -468,7 +468,7 @@ function liveStep(i){
 }
 
 // Вирізає звук між кроками огинаючої a0..b0 (з відступами) і розпізнає; повертає {r,dur,dr,why}. fast: швидкий режим для перебору
-function liveTry(L,a0,b0,fast){
+function liveTry(L,a0,b0,fast,minRatio=REJECT_RATIO){
   const dur=(b0-a0+1)*HOP+WIN;
   const pad=Math.round(PAD*L.sr),ss=a0*L.h,se=Math.min(L.n,b0*L.h+L.w);
   const a=Math.max(0,ss-pad),z=Math.min(L.n,se+pad);
@@ -477,7 +477,7 @@ function liveTry(L,a0,b0,fast){
   for(let j=0;j<x.length;j++)x[j]=L.raw[(a+j)%L.cap];
   const r=matchKnee(x,L.sr,fast);
   if(!r)return{dur,why:'закоротке для розпізнавання'};
-  if(r.sym==='?'||r.ratio<REJECT_RATIO)return{r,dur,why:`не схоже на жодне коліно · запас ${rt(r.ratio)} · відстань ${r.dist>1e5?'—':r.dist.toFixed(1)} · ${dur.toFixed(2)} с`};
+  if(r.sym==='?'||r.ratio<minRatio)return{r,dur,why:`не схоже на жодне коліно · запас ${rt(r.ratio)} · відстань ${r.dist>1e5?'—':r.dist.toFixed(1)} · ${dur.toFixed(2)} с`};
   // Тривалість живого коліна має збігатися з тривалістю шаблону (для правильних збігів 0.93–1.30, для злипання 1.87)
   const dr=(dur+2*PAD)/(lib[r.sym].ft.n*HOPS);
   if(dr>DUR_MAX)return{r,dur,dr,why:`коліно ${dur.toFixed(2)} с у ${dr.toFixed(2)} раза довше за шаблон «${sy(r.sym)}», схоже на злипання звуків`};
@@ -493,7 +493,7 @@ function liveAccept(L,t){
 // поруч, склеюється з коліном в один сегмент, який не схожий ні на що. Розбиваємо подію на спалахи (за паузами ≥ RESCUE_SPLIT мс),
 // перебираємо суміжні групи спалахів, найкращу групу перевіряємо повним розпізнаванням; решту ліворуч і праворуч шукаємо так само.
 // Кожну групу оцінюємо один раз (кеш), а між оцінками віддаємо керування, щоб сторінка й прийом звуку не зависали.
-const RESCUE_SPLIT=250, RESCUE_RATIO=1.6, RESCUE_MAX_BURSTS=10, RESCUE_MAX_CALLS=60, RESCUE_LEVELS=[0,8,16], RESCUE_SP_DIST=16;
+const RESCUE_SPLIT=250, RESCUE_RATIO=1.6, RESCUE_MIN_RATIO=1.25, RESCUE_DIST=16, RESCUE_MAX_BURSTS=10, RESCUE_MAX_CALLS=60, RESCUE_LEVELS=[0,8,16];
 const yieldUi=()=>new Promise(r=>setTimeout(r,0));
 async function liveRescue(L,k){
   if(k.s-L.eBase<0)return false;
@@ -514,28 +514,29 @@ async function liveRescue(L,k){
     if(memo.has(key))return memo.get(key);
     if(!full){if(calls>=RESCUE_MAX_CALLS)return null;calls++}
     await yieldUi();
-    const t=liveTry(L,a,b,!full);memo.set(key,t);
+    const t=liveTry(L,a,b,!full,RESCUE_MIN_RATIO);memo.set(key,t);
     if(t.r&&t.r.sym!=='?'&&(!bestFail||t.r.ratio>bestFail.r.ratio))bestFail=t;
     return t;
   };
-  // Пробіл за природою має малий запас (його найближчий сусід «і»), тому для нього поріг запасу нижчий, але додано обмеження відстані
+  // Справжній збіг: або великий запас, або (помірний запас і мала відстань до шаблону). Шум у журналах має відстань 30–50,
+  // а справжні коліна, зокрема пробіл із малим запасом, до ~14, тому відстань надійно відрізняє їх там, де запас ще малий
   const okT=t=>{
     if(!t||t.why||t.dr<.7)return false;
-    if(t.r.sym===' ')return t.r.ratio>=REJECT_RATIO&&t.r.dist<=RESCUE_SP_DIST;
-    return t.r.ratio>=RESCUE_RATIO;
+    return t.r.ratio>=RESCUE_RATIO||(t.r.ratio>=RESCUE_MIN_RATIO&&t.r.dist<=RESCUE_DIST);
   };
   for(const up of RESCUE_LEVELS){
     const bs=bursts(up);
     if(bs.length<1||(up===0&&bs.length<2))continue;                      // на нульовому рівні розбивати нічого
-    const found=[];
+    const found=[],left=[];
     const go=async arr=>{
       if(!arr.length)return;
-      const cands=[];
+      const cands=[];let loc=null;
       for(let i=0;i<arr.length;i++)for(let j=i;j<arr.length;j++){
         if(up===0&&i===0&&j===arr.length-1&&arr===bs)continue;           // повну подію вже пробували
         const w=(arr[j].e-arr[i].s+1)*HOP+WIN+2*PAD;
         if(w<.75*minT||w>DUR_MAX*maxT)continue;                          // довжина неможлива для жодного шаблону
         const t=await evalG(arr[i].s,arr[j].e,false);
+        if(t&&t.r&&t.r.sym!=='?'&&(!loc||t.r.ratio>loc.r.ratio))loc=t;
         if(t&&okT(t))cands.push({i,j,t});
       }
       cands.sort((a,b)=>b.t.r.ratio-a.t.r.ratio);
@@ -543,11 +544,14 @@ async function liveRescue(L,k){
         const f=await evalG(arr[c.i].s,arr[c.j].e,true);                 // підтвердження повним розпізнаванням
         if(okT(f)){found.push({s:arr[c.i].s,t:f});await go(arr.slice(0,c.i));await go(arr.slice(c.j+1));return}
       }
+      const span=((arr[arr.length-1].e-arr[0].s+1)*HOP+WIN).toFixed(2);
+      left.push(loc?`   (залишок ${span} с без збігу: найкращий «${sy(loc.r.sym)}» · запас ${rt(loc.r.ratio)} · відстань ${loc.r.dist.toFixed(1)} · ${loc.dur.toFixed(2)} с)`:`   (залишок ${span} с без кандидатів: довжина не підходить жодному шаблону)`);
     };
     await go(bs);
     if(found.length){
       found.sort((a,b)=>a.s-b.s);
       for(const f of found){log(`   (врятовано з-поміж сторонніх звуків${up?`, поріг +${up} дБ`:''})`);liveAccept(L,f.t)}
+      left.forEach(m=>log(m));
       return true;
     }
   }
