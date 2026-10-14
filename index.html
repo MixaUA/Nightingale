@@ -85,6 +85,10 @@ html{-webkit-tap-highlight-color:transparent}
 #listen .mic{display:block;position:relative;z-index:3;width:44%;height:44%;color:var(--ink)}
 #listen.loading .mic{display:none}
 #listen.rec .mic{color:var(--paper)}
+/* розпізнавання файлу: не слухаємо, а «читаємо» — лупа замість мікрофона */
+#listen .lens{display:none}
+#listen.read .mic{display:none}
+#listen.read .lens{display:block;position:relative;z-index:3;width:44%;height:44%;color:var(--paper)}
 @keyframes rec-pulse{
   0%{transform:scale(1);opacity:1}
   100%{transform:scale(1.5);opacity:0}
@@ -154,7 +158,7 @@ html{-webkit-tap-highlight-color:transparent}
   <div id="result" class="line"><div id="clip"><div id="run"></div></div></div>
   <div id="srText" class="sr" role="status" aria-live="polite"></div>
 
-  <button id="listen" class="loading" type="button" aria-pressed="false" aria-label="Завантаження: 0%" disabled><span id="pct">0%</span><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg></button>
+  <button id="listen" class="loading" type="button" aria-pressed="false" aria-label="Завантаження: 0%" disabled><span id="pct">0%</span><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg><svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
 
   <button id="download" type="button" aria-label="Розпізнати аудіофайл" disabled>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -257,6 +261,7 @@ const ui = (function () {
     els.btn.classList.toggle('loading', s === 'loading');
     els.btn.classList.toggle('rec', s === 'listening' || s === 'decoding');
     els.btn.classList.toggle('dim', s === 'failed');
+    els.btn.classList.toggle('read', s === 'decoding');
   }
 
   var api = {
