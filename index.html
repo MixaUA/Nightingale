@@ -88,18 +88,12 @@ html{-webkit-tap-highlight-color:transparent}
 /* розпізнавання файлу: не слухаємо, а «читаємо» — лупа замість мікрофона */
 #listen .lens{display:none}
 #listen.read .mic{display:none}
-#listen.read .lens{display:block;position:relative;z-index:3;width:44%;height:44%;color:var(--paper);
-  animation:lens-read 1600ms ease-in-out infinite}
-/* лупа «читає»: плавно їздить вліво-вправо в межах кнопки (±22% власної ширини ≈ ±10% кнопки) */
-@keyframes lens-read{
-  0%,100%{transform:translateX(-22%)}
-  50%{transform:translateX(22%)}
-}
+#listen.read .lens{display:block;position:relative;z-index:3;width:44%;height:44%;color:var(--paper)}
 @keyframes rec-pulse{
   0%{transform:scale(1);opacity:1}
   100%{transform:scale(1.5);opacity:0}
 }
-@media (prefers-reduced-motion:reduce){#listen.rec::before{animation:none;opacity:0}#listen.read .lens{animation:none}}
+@media (prefers-reduced-motion:reduce){#listen.rec::before{animation:none;opacity:0}}
 /* завантаження: кільце заповнюється за відсотками, число всередині */
 #listen.loading{background:conic-gradient(var(--sky) calc(var(--p,0) * 1%),var(--track) 0)}
 #listen.loading::before{content:"";position:absolute;inset:9px;border-radius:50%;background:var(--ink)}
