@@ -40,8 +40,8 @@ body{
 
 /* ---------- сторінка під шапкою ---------- */
 main{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:28px;
-  padding:28px 16px calc(40px + env(safe-area-inset-bottom,0px));
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:clamp(40px,9vw,56px);
+  padding:clamp(32px,8vw,48px) 16px calc(56px + env(safe-area-inset-bottom,0px));
 }
 #result{
   width:300px;max-width:100%;height:48px;padding:0 14px;
@@ -903,7 +903,7 @@ document.addEventListener('pointerup',()=>{if(ctx&&ctx.state!=='running'&&ctx.st
 
 // ===== Розпізнавання з файлу (іконка) =====
 async function decodeFile(f) {
-  ui.set('decoding'); ui.anim(true); ui.status('Слухаю запис');
+  ui.set('decoding'); ui.anim(true); ui.status('Розпізнаю запис');
   try {
     log(`\n-- Розкодування: ${f.name} --`);
     let x;
