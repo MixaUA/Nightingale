@@ -360,9 +360,24 @@ const ui = (function () {
   return api;
 })();
 
+// мікрофон відключився під час слухання (відкликали дозвіл, витягли, перехопила інша програма):
+// вимикаємо слухання, інакше сторінка далі «слухала б» тишу. Розпізнаний текст не стираємо.
+function micLost(st) {
+  if (liveStream !== st) return;
+  const had = !!(LV && LV.text);
+  liveStop();
+  if (!had) liveQ = liveQ.then(function () {
+    if (ui.state === 'idle') ui.say('Мікрофон відключився. Натисніть кнопку, щоб увімкнути знову.');
+  });
+}
+
 // зрозумілі повідомлення про проблеми з мікрофоном
 function micMsg(e) {
   var n = e && e.name;
+  var embedded = false;
+  try { embedded = window.self !== window.top } catch (_) { embedded = true }
+  if (embedded && (n === 'NotAllowedError' || n === 'SecurityError'))
+    return 'Сторінка відкрита всередині іншої сторінки, яка не дає їй доступу до мікрофона. Відкрийте її окремо.';
   if (n === 'NotAllowedError' || n === 'SecurityError')
     return 'Немає доступу до мікрофона. Дозвольте його в налаштуваннях браузера й натисніть кнопку ще раз.';
   if (n === 'NotFoundError' || n === 'OverconstrainedError')
@@ -558,7 +573,7 @@ function readLines(d,n,maxAmp,fade){
 
 // Збирання звуку коліна з ліній: кожна лінія = одна синусоїда, частота й гучність
 // лінійно змінюються між точками, фаза накопичується безперервно.
-function synthKnee(tr,len,fx,sc,sr){
+async function synthKnee(tr,len,fx,sc,sr,pause){
   const out=new Float32Array(len),thr=fx.compThresh*sc.maxAmp;
   for(const t of tr){
     // Приглушення гучних ліній і підсилення верхніх (перехід 3000–5000 Гц, як в інструменті)
@@ -576,6 +591,7 @@ function synthKnee(tr,len,fx,sc,sr){
         ph+=2*Math.PI*f/sr;
         out[i]+=a*Math.sin(ph);
       }
+      if(pause)await pause();   // віддаємо керування сторінці (розрахунок той самий)
     }
   }
   return out;
@@ -857,6 +873,7 @@ async function liveStart(){
     try{liveStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
     catch(e){log('ПОМИЛКА: немає доступу до мікрофона ('+(e&&e.name||e)+')');ui.say(micMsg(e));return false}
     liveReset();wlAcquire();
+    {const st=liveStream;st.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>micLost(st)))}
     liveSrc=ctx.createMediaStreamSource(liveStream);
     try{
       // Модуль реєструємо один раз на AudioContext: повторне додавання падало б і мовчки вмикало запасний шлях
@@ -1009,30 +1026,39 @@ async function buildFromScore(o,name){
    if(has&&i<0)SYMS.push(SEP);else if(!has&&i>=0)SYMS.splice(i,1);
    log(has?`Роздільник «${SEP}» знайдено в партитурі: додається в кінець закодованого тексту`:`Роздільника «${SEP}» у партитурі немає (додайте коліно з ключем «${SEP}», щоб він звучав у кінці тексту)`)}
   log(`Налаштування звуку з партитури: гучність ${fx.safePeak}, дзвінкість ${fx.brightGain}× від ${fx.brightHz} Гц, відлуння ${fx.roomMix} / ${fx.roomSec} с, приглушення ${fx.compThresh} / ${fx.compPower}`);
+  let bt=performance.now();const brk=async()=>{if(performance.now()-bt>8){await yieldUi();bt=performance.now()}};
   for(let n=0;n<SYMS.length;n++){
-    const s=SYMS[n],t=o.t&&o.t[s];
+    const s=SYMS[n],t=o.t&&o.t[s],tSym=performance.now();
     const fail=m=>{log('ПОМИЛКА: '+m);ui.fail("Не вдалося підготувати розпізнавання. Оновіть сторінку й спробуйте ще раз.")};
     if(!t){fail(`у партитурі немає символу «${sy(s)}»`);return}
     try{
-      let y=await roomify(synthKnee(readLines(t.d,t.n,o.maxAmp,2),t.len,fx,sc,sr),fx,sr);
+      const dry=await synthKnee(readLines(t.d,t.n,o.maxAmp,2),t.len,fx,sc,sr,brk);
+      await brk();
+      let y=await roomify(dry,fx,sr);
+      await brk();
       // Короткі плавні краї кліпу (20 мс): хвіст відлуння обрізається по межі кліпу без клацання
       const fd=Math.round(.02*sr);
       for(let i=0;i<fd&&i<y.length;i++){const k=i/fd;y[i]*=k;y[y.length-1-i]*=k}
       // Вирівнювання гучності
-      const V=lvl(y,sr);
+      const V=lvl(y,sr);await brk();
       let g=Math.min(Math.pow(10,(p.tgt-V.r50)/20),p.pmax/(V.pk+1e-9),Math.pow(10,p.boost/20));if(!(g>0&&isFinite(g)))g=1;
       for(let i=0;i<y.length;i++)y[i]*=g;
+      await brk();
       // Відбиток для розпізнавання: найдовше коліно кліпу
       const kn=(await findKnees(y,sr,p)).kn;
       if(!kn.length){fail(`у синтетичному кліпі «${sy(s)}» не знайдено коліна`);return}
       let m=kn[0];for(const q of kn)if(q.se-q.ss>m.se-m.ss)m=q;
-      const sf=segFeat(y,sr,m),ft=sf.ft;
+      const sf=segFeat(y,sr,m),ft=sf.ft;await brk();
       if(!ft){fail(`синтетичний кліп «${sy(s)}» закороткий (коліно ${((m.se-m.ss)/sr).toFixed(2)} с)`);return}
       // Ще три фази кадрової сітки шаблону (зсув старту на 5, 10, 15 мс): рахуються один раз тут, а не на кожному живому коліні
-      const fts=[];for(let j=1;j<4;j++){const f=features(y.subarray(sf.a+j*Math.round(sr*.005),sf.z),sr);if(f)fts.push(f)}
+      const fts=[];for(let j=1;j<4;j++){const f=features(y.subarray(sf.a+j*Math.round(sr*.005),sf.z),sr);if(f)fts.push(f);await brk()}
       L[s]={idx:t.idx,y,ft,fts};
     }catch(e){fail(`«${sy(s)}»: ${e.message}`);return}
-    if(n%2===1||n===SYMS.length-1){ui.progress((n+1)/SYMS.length);log(`... ${n+1} з ${SYMS.length}`);await new Promise(r=>setTimeout(r))}
+    ui.progress((n+1)/SYMS.length);log(`... ${n+1} з ${SYMS.length}`);
+    // Коротка пауза після кожного символу: сторінка встигає намалювати кадр і відповісти на дотик, а пристрій «видихнути».
+    // Пауза пропорційна роботі (від 16 до 80 мс); у прихованій вкладці її немає (таймери там і так гальмуються).
+    if(document.hidden)await yieldUi();else await new Promise(r=>setTimeout(r,Math.min(80,Math.max(16,.4*(performance.now()-tSym)))));
+    bt=performance.now();
   }
   lib=L;
   log(`Бібліотека готова: ${SYMS.length} символів`);
