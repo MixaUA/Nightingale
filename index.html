@@ -63,7 +63,7 @@ main{
   flex:1;display:flex;flex-direction:column;align-items:center;gap:clamp(40px,9vw,56px);
   padding:clamp(32px,8vw,48px) 16px calc(56px + env(safe-area-inset-bottom,0px));
 }
-#result{
+#result,#field{
   width:320px;max-width:100%;height:48px;padding:0 8px;
   display:flex;align-items:center;overflow:hidden;
   background:var(--ink);color:var(--paper);
@@ -94,7 +94,7 @@ main{
 #listen:disabled{cursor:default}
 /* без квадрата-підсвічування, який мобільні браузери малюють при дотику */
 html{-webkit-tap-highlight-color:transparent}
-#listen,#download{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+#listen,#download,.ib{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 #listen:focus:not(:focus-visible),#download:focus:not(:focus-visible){outline:none}
 #listen.dim{opacity:.4}
 /* розпізнавання: червоний диск, кільце пульсує, всередині білий мікрофон */
@@ -119,12 +119,76 @@ html{-webkit-tap-highlight-color:transparent}
 #listen.loading::before{content:"";position:absolute;inset:9px;border-radius:50%;background:var(--ink)}
 #pct{position:relative;display:none}
 #listen.loading #pct{display:block}
-#download{
+#download,.ib{
   display:grid;place-items:center;width:56px;height:56px;padding:0;
   background:none;border:0;border-radius:50%;color:var(--paper);cursor:pointer;
 }
-#download svg{width:34px;height:34px;display:block}
-#download:disabled{opacity:.35;cursor:default}
+#download svg,.ib svg{width:34px;height:34px;display:block}
+#download:disabled,.ib:disabled{opacity:.35;cursor:default}
+
+/* ---------- вкладки: розпізнавання / кодування ---------- */
+:root{--ok:#3ddc84}   /* зелений: символ, що звучить зараз */
+.ib:focus-visible{outline:3px solid var(--paper);outline-offset:4px}
+main[data-tab="listen"] #field,main[data-tab="write"] #result{display:none}
+/* дві панелі в одній клітинці: висота береться з вищої, тож перемикач вкладок не стрибає */
+.panels{display:grid;justify-items:center;align-items:center}
+.panel{grid-area:1/1;display:flex;flex-direction:column;align-items:center;gap:clamp(40px,9vw,56px)}
+.panel.row{flex-direction:row;gap:clamp(20px,7vw,32px)}
+main[data-tab="listen"] #pWrite,main[data-tab="write"] #pListen{visibility:hidden;pointer-events:none}
+/* поле вводу: та сама рамка, що й у рядка результату; рамка стає жовтою лише у фокусі */
+#field:focus-within{border-color:var(--sky)}
+#msg{
+  flex:1;min-width:0;width:100%;height:100%;margin:0;padding:0;border:0;border-radius:0;outline:0;
+  background:none;color:var(--paper);font:inherit;text-align:center;caret-color:var(--sky);
+}
+#msg::placeholder{color:var(--muted);opacity:1}
+#msg:disabled{opacity:1;-webkit-text-fill-color:var(--paper)}
+#msg:disabled::placeholder{-webkit-text-fill-color:var(--muted)}
+/* під час відтворення поле показує той самий текст білим, а символ, що звучить, зеленим */
+#hv{display:none;flex:1;min-width:0;overflow:hidden;justify-content:center}
+#field.playing #msg{display:none}
+#field.playing #hv{display:flex}
+#hv.ov{
+  justify-content:flex-start;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 16px),transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 16px),transparent);
+}
+#hvRun{display:flex;flex:none;position:relative;white-space:pre;transition:transform .5s cubic-bezier(.3,.7,.2,1)}
+#hvRun .c{flex:none;transition:color .2s}
+#hvRun .c.on{color:var(--ok)}
+#hvRun .sp{width:.4em}
+#hvRun .sp.on{box-shadow:inset 0 -2px 0 var(--ok)}   /* пробіл не має кольору: підкреслюємо його зеленим */
+#hvRun .sep{margin:0 .3em}
+/* кнопки ряду кодування: ті самі, що кнопка завантаження */
+#play .ic-stop{display:none}
+#play.on .ic-play{display:none}
+#play.on .ic-stop{display:block;color:var(--rec)}
+#enc.done{color:var(--sky)}                           /* текст закодовано: нота жовта, поки текст не змінили */
+.ib.pulse svg{animation:ib-pop .35s ease}
+.ib.busy{animation:ib-busy .9s ease-in-out infinite alternate}
+@keyframes ib-pop{40%{transform:scale(1.22)}}
+@keyframes ib-busy{from{opacity:.35}to{opacity:.9}}
+/* перемикач вкладок: капсула з жовтим повзунком, лише іконки */
+.tabs{position:relative;display:grid;grid-template-columns:1fr 1fr;width:100px;height:44px;border-radius:22px;background:var(--track)}
+.tabs.off{opacity:.45}
+.tabs .thumb{
+  position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:18px;background:var(--sky);
+  transition:transform .28s cubic-bezier(.3,.7,.2,1);
+}
+.tabs[data-tab="write"] .thumb{transform:translateX(100%)}
+.tabs button{
+  position:relative;z-index:1;display:grid;place-items:center;padding:0;border:0;border-radius:22px;
+  background:none;color:var(--sky);cursor:pointer;transition:color .2s;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+}
+.tabs button[aria-selected="true"]{color:var(--ink)}
+.tabs button:disabled{cursor:default}
+.tabs button:focus-visible{outline:3px solid var(--paper);outline-offset:2px}
+.tabs svg{width:22px;height:22px;display:block}
+@media (prefers-reduced-motion:reduce){
+  .tabs .thumb,#hvRun,#hvRun .c,.tabs button{transition:none}
+  .ib.pulse svg,.ib.busy{animation:none}
+}
 </style>
 </head>
 <body>
@@ -168,10 +232,16 @@ html{-webkit-tap-highlight-color:transparent}
   </div>
 </header>
 
-<main>
+<main data-tab="listen">
   <div id="result" class="line"><div id="clip"><div id="run"></div></div></div>
+  <div id="field" class="line">
+    <input id="msg" type="text" maxlength="60" enterkeyhint="done" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" lang="uk" placeholder="Текст до 60 символів" aria-label="Текст для кодування" disabled>
+    <div id="hv" aria-hidden="true"><div id="hvRun"></div></div>
+  </div>
   <div id="srText" class="sr" role="status" aria-live="polite"></div>
 
+  <div class="panels">
+    <div id="pListen" class="panel">
   <button id="listen" class="loading" type="button" aria-pressed="false" aria-label="Завантаження: 0%" disabled><span id="pct">0%</span><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg><svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
 
   <button id="download" type="button" aria-label="Розпізнати аудіофайл" disabled>
@@ -181,6 +251,30 @@ html{-webkit-tap-highlight-color:transparent}
       <path d="M4 20h16"/>
     </svg>
   </button>
+    </div>
+    <div id="pWrite" class="panel row" role="group" aria-label="Кодування">
+      <button id="enc" class="ib" type="button" aria-label="Закодувати" title="Закодувати" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </button>
+      <button id="play" class="ib" type="button" aria-label="Відтворити" title="Відтворити" disabled>
+        <svg class="ic-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg class="ic-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+      <button id="save" class="ib" type="button" aria-label="Зберегти звук на пристрій" title="Зберегти" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10.5l5 5 5-5"/><path d="M4 20h16"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="tabs" class="tabs" data-tab="listen" role="tablist" aria-label="Режим">
+    <span class="thumb"></span>
+    <button id="tabListen" type="button" role="tab" aria-selected="true" aria-controls="pListen" aria-label="Розпізнавання" title="Розпізнавання">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg>
+    </button>
+    <button id="tabWrite" type="button" role="tab" aria-selected="false" aria-controls="pWrite" aria-label="Кодування" title="Кодування" tabindex="-1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </button>
+  </div>
   <input id="audioIn" type="file" accept="audio/*" hidden>
 </main>
 
@@ -231,7 +325,7 @@ const ui = (function () {
   // --- текстовий рядок: коротке стоїть по центру, довге ходить по колу ---
   var box = els.res, run = document.getElementById('run'), sr = document.getElementById('srText');
   var DOT = '\u2003•\u2003', SPEED = 45;           // крапка з відступами (розділювач між колами) і швидкість, px/с
-  var cur = '', unitW = 0, off = 0, mraf = 0, mlast = 0;
+  var cur = '', unitW = 0, off = 0, mraf = 0, mlast = 0, held = false, onSync = null;
 
   function mStop() { cancelAnimationFrame(mraf); mraf = 0; }
   function mFrame(now) {
@@ -246,6 +340,7 @@ const ui = (function () {
     var t = raw.replace(/~/g, DOT);                // «~» (кінець речення) показуємо крапкою з тими самими відступами
     if (!keep && !(cur && t.indexOf(cur) === 0)) off = 0;
     cur = t;
+    if (held) return;                                // рядок прихований (вкладка кодування): не міряємо й не анімуємо
     run.textContent = '';
     var u = document.createElement('span');
     u.textContent = t.replace(/^\u2003|\u2003$/g, ''); run.appendChild(u);   // по центру крайні відступи не потрібні
@@ -281,10 +376,14 @@ const ui = (function () {
     els.btn.classList.toggle('rec', s === 'listening' || s === 'decoding');
     els.btn.classList.toggle('dim', s === 'failed');
     els.btn.classList.toggle('read', s === 'decoding');
+    if (onSync) onSync();
   }
 
   var api = {
-    state: 'loading',     // loading | idle | listening | decoding | failed
+    state: 'loading',     // loading | idle | listening | decoding | playing | failed
+    onSync: function (f) { onSync = f; },
+    // рядок результату прихований: зупиняємо його анімацію (без зайвого навантаження), при поверненні малюємо знову
+    hold: function (h) { held = !!h; if (held) mStop(); else if (cur) setText(cur, true); },
     set: function (s) { api.state = s; sync(); },
 
     // повідомлення з крапками, що «біжать», поки користувач чекає
@@ -981,6 +1080,271 @@ els.pick.addEventListener('change', function () {
   const f = els.pick.files[0]; els.pick.value = '';
   if (f) decodeFile(f);
 });
+
+
+// ===== Вкладка кодування: текст → звук (відтворення і файл) =====
+// Файл: частота дискретизації. 16000 дає файл утричі менший (спів лежить нижче 6 кГц; перевірено колом
+// «кодування → 16 кГц → розпізнавання»). ЩОБ ПОВЕРНУТИ ПОВНУ ЯКІСТЬ (48 кГц, файл утричі більший), поставте 48000.
+const EXPORT_SR = 16000;
+const MAX_CHARS = 60;
+const FIR_TAPS = 97;
+
+/* <wr-pure> */
+// Лише літери абетки з бібліотеки: усе інше мовчки відкидається; велика літера → мала; різні апострофи й тильди зводяться до одного
+function wrClean(raw) {
+  const t = String(raw).toLowerCase().replace(/[ʼ’‘`´]/g, "'").replace(/[∼～˜]/g, SEP).replace(/\s+/g, ' ');
+  let o = '';
+  for (const ch of t) { if (lib && lib[ch] && !(ch === ' ' && (o === '' || o[o.length - 1] === ' '))) o += ch; }
+  return o.slice(0, MAX_CHARS);
+}
+// Низькочастотний фільтр (вікно Хеммінга); fc у частках частоти дискретизації; підсилення на постійній складовій 1
+function wrFir(taps, fc) {
+  const M = (taps - 1) / 2, h = new Float32Array(taps);
+  let sum = 0;
+  for (let i = 0; i < taps; i++) {
+    const n = i - M, x = 2 * fc * n, sinc = n === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+    h[i] = 2 * fc * sinc * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (taps - 1)));
+    sum += h[i];
+  }
+  for (let i = 0; i < taps; i++) h[i] /= sum;
+  return h;
+}
+// Зниження частоти в r разів (фільтр + вибірка кожного r-го відліку) одразу в 16-бітні числа. Віддає керування сторінці кожні ~6 мс.
+async function wrDecimate(y, r, h) {
+  const n = y.length, taps = h.length, M = (taps - 1) >> 1, outN = Math.ceil(n / r), out = new Int16Array(outN);
+  let ts = performance.now();
+  for (let k = 0; k < outN; k++) {
+    const base = k * r - M;
+    let s = 0;
+    if (base >= 0 && base + taps <= n) {                         // фільтр симетричний: складаємо пари відліків, множень удвічі менше
+      s = h[M] * y[base + M];
+      for (let j = 0; j < M; j++) s += h[j] * (y[base + j] + y[base + taps - 1 - j]);
+    }
+    else { for (let j = 0; j < taps; j++) { const i = base + j; if (i >= 0 && i < n) s += y[i] * h[j]; } }
+    const v = Math.round(s * 32767);
+    out[k] = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+    if ((k & 2047) === 2047 && performance.now() - ts > 6) { await yieldUi(); ts = performance.now(); }
+  }
+  return out;
+}
+function wrToInt16(y) {
+  const out = new Int16Array(y.length);
+  for (let i = 0; i < y.length; i++) { const v = Math.round(y[i] * 32767); out[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
+  return out;
+}
+function wrHeader(nSamples, sr) {
+  const b = new ArrayBuffer(44), d = new DataView(b), S = (o, t) => { for (let i = 0; i < t.length; i++) d.setUint8(o + i, t.charCodeAt(i)); };
+  S(0, 'RIFF'); d.setUint32(4, 36 + nSamples * 2, true); S(8, 'WAVE'); S(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+  d.setUint32(24, sr, true); d.setUint32(28, sr * 2, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); S(36, 'data'); d.setUint32(40, nSamples * 2, true);
+  return new Uint8Array(b);
+}
+// Файл збирається зі шматків без склеювання в один величезний масив: кожен символ перераховується один раз, повторні беруться з кешу
+async function wrBuildWav(syms) {
+  const sr0 = ctx.sampleRate;
+  const outSR = (EXPORT_SR > 0 && EXPORT_SR < sr0 && sr0 % EXPORT_SR === 0) ? EXPORT_SR : sr0;
+  const r = sr0 / outSR, h = r > 1 ? wrFir(FIR_TAPS, 0.4375 * outSR / sr0) : null;
+  const cache = {};
+  let total = 0;
+  for (const c of syms) {
+    if (!cache[c]) {
+      const e = lib[c];
+      if (!e.w || e.wSR !== outSR) { e.w = r > 1 ? await wrDecimate(e.y, r, h) : wrToInt16(e.y); e.wSR = outSR; }
+      cache[c] = e.w;
+    }
+    total += cache[c].length;
+  }
+  const parts = [wrHeader(total, outSR)];
+  for (const c of syms) parts.push(cache[c]);
+  return { blob: new Blob(parts, { type: 'audio/wav' }), sr: outSR, samples: total };
+}
+// Один AudioBuffer на символ (створюється при першому відтворенні); дані кліпу переїжджають у нього, тож копія лишається одна
+function wrBuf(c) {
+  const e = lib[c];
+  if (e.buf) return e.buf;
+  const b = ctx.createBuffer(1, e.y.length, ctx.sampleRate);
+  b.copyToChannel(e.y, 0);
+  e.buf = b; e.y = b.getChannelData(0);
+  return b;
+}
+/* </wr-pure> */
+
+const wr = (function () {
+  const main = document.querySelector('main'), tabsEl = document.getElementById('tabs');
+  const tL = document.getElementById('tabListen'), tW = document.getElementById('tabWrite');
+  const field = document.getElementById('field'), msg = document.getElementById('msg');
+  const hv = document.getElementById('hv'), hvRun = document.getElementById('hvRun');
+  const bEnc = document.getElementById('enc'), bPlay = document.getElementById('play'), bSave = document.getElementById('save');
+  const srEl = document.getElementById('srText');
+  let tab = 'listen', enc = null, playing = null, saving = false;
+  let kids = null, kOn = -1, kOv = false, kC = [], kW = 0, kB = 0;
+
+  const announce = t => { srEl.textContent = t; };
+
+  // ---- доступність елементів залежно від стану ----
+  function refresh() {
+    const s = ui.state;
+    const tabsOk = s === 'idle' || s === 'listening' || s === 'playing';
+    tL.disabled = tW.disabled = !tabsOk;
+    tabsEl.classList.toggle('off', !tabsOk);
+    const editable = !!lib && s === 'idle';
+    msg.disabled = !editable;
+    bEnc.disabled = !(editable && wrClean(msg.value).length > 0);
+    bEnc.classList.toggle('done', !!enc);
+    bPlay.disabled = !(enc && !saving && (s === 'idle' || s === 'playing'));
+    bSave.disabled = !(enc && !saving && s === 'idle');
+    const on = s === 'playing';
+    bPlay.classList.toggle('on', on);
+    bPlay.setAttribute('aria-label', on ? 'Зупинити' : 'Відтворити');
+    bPlay.title = on ? 'Зупинити' : 'Відтворити';
+  }
+  ui.onSync(refresh);
+
+  // ---- вкладки ----
+  function stopListening() {
+    if (pending) { cancelStart = true; ui.listening(false); }     // ще чекали мікрофон
+    else if (ui.state === 'listening') liveStop();
+  }
+  function setTab(t) {
+    if (t === tab) return;
+    if (!(ui.state === 'idle' || ui.state === 'listening' || ui.state === 'playing')) return;
+    if (playing) stopPlay();
+    if (t === 'write') stopListening();
+    tab = t; main.dataset.tab = t; tabsEl.dataset.tab = t;
+    tL.setAttribute('aria-selected', String(t === 'listen')); tW.setAttribute('aria-selected', String(t === 'write'));
+    tL.tabIndex = t === 'listen' ? 0 : -1; tW.tabIndex = t === 'write' ? 0 : -1;
+    ui.hold(t === 'write');
+    refresh();
+  }
+  tL.addEventListener('click', () => setTab('listen'));
+  tW.addEventListener('click', () => setTab('write'));
+  tabsEl.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const t = e.key === 'ArrowRight' ? 'write' : 'listen';
+    setTab(t); (t === 'write' ? tW : tL).focus();
+  });
+
+  // ---- поле вводу ----
+  msg.addEventListener('input', e => {
+    if (e.isComposing) return;                                    // клавіатури з підказками: чистимо після завершення слова
+    const v = msg.value, c = wrClean(v);
+    if (c !== v) {
+      const pos = msg.selectionStart, p = Math.max(0, Math.min(c.length, (pos == null ? c.length : pos) - (v.length - c.length)));
+      msg.value = c;
+      try { msg.setSelectionRange(p, p); } catch (_) {}
+    }
+    enc = null;                                                   // текст змінили: закодоване застаріло
+    refresh();
+  });
+  msg.addEventListener('compositionend', () => msg.dispatchEvent(new Event('input')));
+  msg.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doEncode(); msg.blur(); } });
+
+  // ---- кодування: збираємо лише розклад кліпів, сам звук не склеюємо (економія пам'яті) ----
+  function doEncode() {
+    if (bEnc.disabled) return;
+    const t = wrClean(msg.value);
+    if (!t) return;
+    msg.value = t;                                                // у полі саме те, що закодовано
+    const syms = [...t];
+    if (lib[SEP] && syms[syms.length - 1] !== SEP) syms.push(SEP);   // роздільник у кінці тексту, якщо він є в партитурі
+    const sr0 = ctx.sampleRate, rc = [];
+    let o = 0;
+    for (const c of syms) { const n = lib[c].y.length; rc.push({ sym: c, t0: o / sr0, t1: (o + n) / sr0 }); o += n; }
+    enc = { syms, rc, total: o / sr0 };
+    bEnc.classList.remove('pulse'); void bEnc.offsetWidth; bEnc.classList.add('pulse');
+    announce('Закодовано: ' + t.length + ' символів, приблизно ' + Math.max(1, Math.round(enc.total / 60)) + ' хв звуку');
+    refresh();
+  }
+  bEnc.addEventListener('click', doEncode);
+
+  // ---- підсвічування символу в полі ----
+  function showHV() {
+    hvRun.textContent = ''; hvRun.style.transform = '';
+    const frag = document.createDocumentFragment();
+    for (const c of enc.syms) {
+      const sp = document.createElement('span');
+      sp.className = 'c' + (c === ' ' ? ' sp' : c === SEP ? ' sep' : '');
+      sp.textContent = c === SEP ? '•' : c === ' ' ? '' : c;
+      frag.appendChild(sp);
+    }
+    hvRun.appendChild(frag);
+    field.classList.add('playing');
+    kids = hvRun.children; kOn = -1;
+    kB = hv.clientWidth; kW = hvRun.scrollWidth; kOv = kW > kB;
+    hv.classList.toggle('ov', kOv);
+    kC = [];                                                      // центри символів міряємо один раз, а не на кожному кроці
+    for (let i = 0; i < kids.length; i++) kC.push(kids[i].offsetLeft + kids[i].offsetWidth / 2);
+  }
+  function hideHV() {
+    field.classList.remove('playing'); hv.classList.remove('ov');
+    hvRun.textContent = ''; hvRun.style.transform = ''; kids = null; kOn = -1;
+  }
+  function setOn(i) {
+    if (!kids) return;
+    if (kOn >= 0 && kids[kOn]) kids[kOn].classList.remove('on');
+    kOn = i;
+    if (i >= 0 && kids[i]) {
+      kids[i].classList.add('on');
+      if (kOv) hvRun.style.transform = 'translateX(' + (-Math.max(0, Math.min(kW - kB, kC[i] - kB / 2))) + 'px)';
+    }
+  }
+
+  // ---- відтворення: кліпи плануються браузером заздалегідь, скрипт лише раз на 0.1 с дивиться, який звучить ----
+  function poll() {
+    if (!playing) return;
+    const t = ctx.currentTime - playing.t0, rc = enc.rc;
+    let i = playing.i;
+    while (i < rc.length - 1 && t >= rc[i + 1].t0) i++;
+    if (i === -1 && t >= rc[0].t0) i = 0;
+    if (i !== playing.i) { playing.i = i; setOn(i); }
+  }
+  async function startPlay() {
+    if (!enc || playing || ui.state !== 'idle') return;
+    try { ac(); await ctx.resume(); } catch (e) { return; }
+    if (!enc || playing || ui.state !== 'idle') return;           // поки чекали, стан міг змінитись
+    const t0 = ctx.currentTime + 0.12, srcs = [];
+    for (let i = 0; i < enc.syms.length; i++) {
+      const s = ctx.createBufferSource();
+      s.buffer = wrBuf(enc.syms[i]); s.connect(ctx.destination);   // гучність завжди 100 %: без проміжного підсилювача
+      s.start(t0 + enc.rc[i].t0); srcs.push(s);
+    }
+    playing = { t0, srcs, i: -1, timer: 0 };
+    srcs[srcs.length - 1].onended = () => { if (playing && playing.srcs === srcs) stopPlay(); };
+    showHV(); ui.set('playing'); ui.anim(true); wlAcquire();
+    playing.timer = setInterval(poll, 100); poll();
+  }
+  function stopPlay() {
+    const p = playing;
+    if (!p) return;
+    playing = null;
+    clearInterval(p.timer);
+    for (const s of p.srcs) { s.onended = null; try { s.stop(); } catch (e) {} try { s.disconnect(); } catch (e) {} }
+    hideHV(); wlRelease(); ui.anim(false); ui.set('idle');
+  }
+  bPlay.addEventListener('click', () => { if (playing) stopPlay(); else startPlay(); });
+
+  // ---- збереження файлу ----
+  async function doSave() {
+    if (!enc || saving || ui.state !== 'idle') return;
+    saving = true; bSave.classList.add('busy'); refresh();
+    try {
+      const out = await wrBuildWav(enc.syms);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(out.blob); a.download = 'solovey.wav';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      log('Збережено solovey.wav: ' + out.sr + ' Гц, ' + (out.samples / out.sr).toFixed(1) + ' с, ' + (out.blob.size / 1048576).toFixed(1) + ' МБ');
+      announce('Файл збережено');
+    } catch (e) {
+      log('ПОМИЛКА збереження: ' + (e && e.message || e));
+      announce('Не вдалося зберегти файл. Спробуйте ще раз.');
+    } finally { saving = false; bSave.classList.remove('busy'); refresh(); }
+  }
+  bSave.addEventListener('click', doSave);
+
+  refresh();
+  return { setTab, refresh };
+})();
 
 // ===== Дані для розпізнавання: файл solovey-score.json лежить поруч зі сторінкою =====
 const SCORE_URL = 'solovey-score.json';
