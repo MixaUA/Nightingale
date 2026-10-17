@@ -118,6 +118,19 @@ html{-webkit-tap-highlight-color:transparent}
 #listen .mic{display:block;position:relative;z-index:3;width:44%;height:44%;color:var(--ink)}
 #listen.loading .mic{display:none}
 #listen.rec .mic{color:var(--paper)}
+/* іконки сидять у «вікні» з колом кнопки: так мікрофон виїжджає саме з-під нижнього краю, а пульсація кнопки не обрізається */
+#listen .ico{position:absolute;inset:0;z-index:3;display:grid;place-items:center;border-radius:50%;overflow:hidden;clip-path:circle(50%);pointer-events:none}
+/* після завантаження мікрофон виїжджає знизу з гумовим ефектом: витягується, перелітає, стискається й заспокоюється.
+   Старт translateY(200%): навіть із розтягом по вертикалі верхівка іконки лишається нижче краю кола */
+#listen.pop .mic{transform-origin:50% 75%;animation:mic-pop 950ms linear both}
+@keyframes mic-pop{
+  0%{transform:translateY(200%) scale(.82,1.22);animation-timing-function:cubic-bezier(.2,.75,.3,1)}
+  50%{transform:translateY(-12%) scale(1.14,.86);animation-timing-function:ease-in-out}
+  68%{transform:translateY(5%) scale(.95,1.07);animation-timing-function:ease-in-out}
+  84%{transform:translateY(-2%) scale(1.03,.97);animation-timing-function:ease-in-out}
+  100%{transform:translateY(0) scale(1,1)}
+}
+@media (prefers-reduced-motion:reduce){#listen.pop .mic{animation:none}}
 /* розпізнавання файлу: не слухаємо, а «читаємо» — лупа замість мікрофона */
 #listen .lens{display:none}
 #listen.read .mic{display:none}
@@ -196,7 +209,7 @@ html{-webkit-tap-highlight-color:transparent}
   <div id="result" class="line"><div id="clip"><div id="run"></div></div></div>
   <div id="srText" class="sr" role="status" aria-live="polite"></div>
 
-  <button id="listen" class="loading" type="button" aria-pressed="false" aria-label="Завантаження: 0%" disabled><span class="lq" aria-hidden="true"><span class="lq-level"><svg class="lq-wave lq-back" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50-26 100 26 200 0C250-26 300 26 400 0C450-26 500 26 600 0V240H0Z"/></svg><svg class="lq-wave lq-front" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50 36 100-36 200 0C250 36 300-36 400 0C450 36 500-36 600 0V240H0Z"/></svg></span></span><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg><svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
+  <button id="listen" class="loading" type="button" aria-pressed="false" aria-label="Завантаження: 0%" disabled><span class="lq" aria-hidden="true"><span class="lq-level"><svg class="lq-wave lq-back" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50-26 100 26 200 0C250-26 300 26 400 0C450-26 500 26 600 0V240H0Z"/></svg><svg class="lq-wave lq-front" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50 36 100-36 200 0C250 36 300-36 400 0C450 36 500-36 600 0V240H0Z"/></svg></span></span><span class="ico" aria-hidden="true"><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg><svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></span></button>
 
   <button id="download" type="button" aria-label="Розпізнати аудіофайл" disabled>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -354,7 +367,11 @@ const ui = (function () {
     },
     ready: function () {
       els.btn.setAttribute('aria-label', 'Розпочати розпізнавання');
-      var done = function () { api.set('idle'); api.say('Готово! Натисніть кнопку, щоб слухати!'); };
+      var done = function () {
+        els.btn.classList.add('pop');                                    // мікрофон виїжджає (CSS-анімація стартує, коли він з'являється)
+        api.set('idle'); api.say('Готово! Натисніть кнопку, щоб слухати!');
+        setTimeout(function () { els.btn.classList.remove('pop'); }, 1300); // щоб не повторювалась при наступних появах іконки
+      };
       // даємо рідині дійти до 100%, перш ніж кнопка стане жовтою (у прихованій вкладці без затримки)
       if (api.state === 'loading' && !document.hidden) setTimeout(done, 750); else done();
     },
