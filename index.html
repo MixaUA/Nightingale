@@ -127,23 +127,20 @@ html{-webkit-tap-highlight-color:transparent}
   100%{transform:scale(1.5);opacity:0}
 }
 @media (prefers-reduced-motion:reduce){#listen.rec::before{animation:none;opacity:0}}
-/* завантаження: жовта рідина піднімається за відсотками, на поверхні хвилі, число всередині.
-   Фон диска задає --liquid-bg (за замовчуванням чорний). Хвилі й рівень — окремі елементи: їх рухає відеокарта */
-#listen.loading{background:transparent;box-shadow:0 0 24px rgba(243,212,0,.18)}
-#listen .lq{display:none;position:absolute;inset:0;border-radius:50%;overflow:hidden;clip-path:circle(50%);background:var(--liquid-bg,#000)}
+/* завантаження: жовта рідина піднімається за відсотками, на поверхні хвилі.
+   Фон диска задає --liquid-bg (за замовчуванням прозорий: видно колір сторінки). Хвилі й рівень — окремі елементи: їх рухає відеокарта */
+#listen.loading{background:transparent}
+#listen .lq{display:none;position:absolute;inset:0;border-radius:50%;overflow:hidden;clip-path:circle(50%);background:var(--liquid-bg,transparent)}
 #listen.loading .lq{display:block}
-/* рівень: --f від 0 до 1 (виставляє скрипт); від 108% до -8% висоти, щоб порожня кнопка не показувала гребенів хвиль,
-   а повна була залита повністю й без швів переходила в жовту кнопку */
-.lq-level{position:absolute;inset:0;transform:translateY(calc(108% - 116% * var(--f,0)));transition:transform 700ms cubic-bezier(.4,0,.2,1)}
+/* рівень: --y (у відсотках висоти диска) виставляє скрипт так, щоб ПЛОЩА заливки була пропорційна прогресу;
+   від ≈102,7% (порожньо: гребені хвиль не видно) до ≈-2,7% (повно: без щілин, і шов із жовтою кнопкою непомітний) */
+.lq-level{position:absolute;inset:0;transform:translateY(var(--y,103%));transition:transform 700ms cubic-bezier(.4,0,.2,1)}
 .lq-wave{position:absolute;left:0;top:-10%;width:300%;height:130%;fill:var(--sky)}
 .lq-front{animation:lq-slide 3000ms linear infinite}
 .lq-back{opacity:.45;animation:lq-slide 5000ms linear infinite}
 @keyframes lq-slide{from{transform:translateX(0)}to{transform:translateX(-33.3333%)}}   /* рівно одна довжина хвилі: цикл без шва */
 @media (prefers-reduced-motion:reduce){.lq-wave{animation:none}}
-/* відсотки: білі цифри з чорним контуром (SVG-текст), читаються і на чорному, і на жовтому */
-.pct{position:absolute;inset:0;width:100%;height:100%;z-index:3;display:none;pointer-events:none}
-#listen.loading .pct{display:block}
-#pct{fill:var(--paper);stroke:var(--ink);stroke-width:5;stroke-linejoin:round;paint-order:stroke;font:700 26px/1 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+
 #download{
   display:grid;place-items:center;width:56px;height:56px;padding:0;
   background:none;border:0;border-radius:50%;color:var(--paper);cursor:pointer;
@@ -198,7 +195,7 @@ html{-webkit-tap-highlight-color:transparent}
   <div id="result" class="line"><div id="clip"><div id="run"></div></div></div>
   <div id="srText" class="sr" role="status" aria-live="polite"></div>
 
-  <button id="listen" class="loading" type="button" aria-pressed="false" aria-label="Завантаження: 0%" disabled><span class="lq" aria-hidden="true"><span class="lq-level"><svg class="lq-wave lq-back" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50-12 100 12 200 0C250-12 300 12 400 0C450-12 500 12 600 0V240H0Z"/></svg><svg class="lq-wave lq-front" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50 15 100-15 200 0C250 15 300-15 400 0C450 15 500-15 600 0V240H0Z"/></svg></span></span><svg class="pct" viewBox="0 0 100 100" aria-hidden="true"><text id="pct" x="50" y="50" dy=".35em" text-anchor="middle">0%</text></svg><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg><svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
+  <button id="listen" class="loading" type="button" aria-pressed="false" aria-label="Завантаження: 0%" disabled><span class="lq" aria-hidden="true"><span class="lq-level"><svg class="lq-wave lq-back" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50-12 100 12 200 0C250-12 300 12 400 0C450-12 500 12 600 0V240H0Z"/></svg><svg class="lq-wave lq-front" viewBox="0 -20 600 260" preserveAspectRatio="none"><path d="M0 0C50 15 100-15 200 0C250 15 300-15 400 0C450 15 500-15 600 0V240H0Z"/></svg></span></span><svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/></svg><svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
 
   <button id="download" type="button" aria-label="Розпізнати аудіофайл" disabled>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -214,7 +211,6 @@ html{-webkit-tap-highlight-color:transparent}
 
 const els = {
   btn:  document.getElementById('listen'),
-  pct:  document.getElementById('pct'),
   res:  document.getElementById('result'),
   file: document.getElementById('download'),
   pick: document.getElementById('audioIn')
@@ -300,6 +296,28 @@ const ui = (function () {
     [101, "Перевіряємо ще раз, чекайте"]
   ];
 
+  // Де має стояти поверхня рідини (% висоти диска зверху), щоб було залито частку f ПЛОЩІ диска.
+  // Лінійний рух рівня не годиться: низ кола вузький, а хвиля має свою висоту, тож перші відсотки майже не видно.
+  // Площу рахуємо з урахуванням хвилі: усереднено по її фазі (розподіл висоти поверхні — арксинус), амплітуда AMP —
+  // у частках діаметра (за формою контуру хвилі: ≈4,4 з 200). Рівень знаходимо бісекцією.
+  var AMP = 0.022;
+  function filledAt(b) {                          // частка площі диска, залита при поверхні b (зверху: 0 — верх, 1 — низ)
+    var n = 120, s = 0, tot = 0;
+    for (var i = 0; i < n; i++) {
+      var y = (i + .5) / n, w = Math.sqrt(Math.max(0, .25 - (y - .5) * (y - .5)));   // півширина диска на висоті y
+      var u = (y - b) / AMP, p = u <= -1 ? 0 : (u >= 1 ? 1 : .5 + Math.asin(u) / Math.PI);
+      s += w * p; tot += w;
+    }
+    return s / tot;
+  }
+  function levelY(f) {
+    if (f <= 0) return (1 + AMP + .005) * 100;    // порожньо: гребені хвиль ледь торкаються низу диска
+    if (f >= 1) return (-AMP - .005) * 100;       // повно: западини хвиль вище верху диска, щілин немає
+    var lo = -AMP, hi = 1 + AMP;
+    for (var i = 0; i < 30; i++) { var m = (lo + hi) / 2; if (filledAt(m) > f) lo = m; else hi = m; }
+    return (lo + hi) / 2 * 100;
+  }
+
   function sync() {
     var s = api.state;
     els.btn.disabled = !(s === 'idle' || s === 'listening');
@@ -327,8 +345,8 @@ const ui = (function () {
 
     progress: function (f) {
       var p = Math.max(0, Math.min(100, Math.round(f * 100)));
-      els.btn.style.setProperty('--f', p / 100);   // рівень рідини 0..1
-      els.pct.textContent = p + '%';
+      els.btn.style.setProperty('--f', p / 100);                     // прогрес 0..1
+      els.btn.style.setProperty('--y', levelY(p / 100).toFixed(2) + '%'); // положення поверхні рідини
       els.btn.setAttribute('aria-label', 'Завантаження: ' + p + '%');
       var m = LOAD_MSG.find(function (x) { return p < x[0]; });
       if (m && m[1] !== base) api.status(m[1]);
